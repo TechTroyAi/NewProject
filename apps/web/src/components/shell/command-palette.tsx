@@ -125,6 +125,12 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   const total = filteredCommands.length + hits.length
 
+  // The list can shrink under the cursor (the search returns fewer
+  // hits), which would leave Enter pointing at nothing.
+  React.useEffect(() => {
+    setCursor((c) => Math.min(c, Math.max(0, total - 1)))
+  }, [total])
+
   function go(href: string) {
     router.push(href)
     onClose()

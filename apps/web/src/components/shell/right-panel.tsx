@@ -77,11 +77,33 @@ export function RightPanel() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ question, scope }),
       })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null)
+        throw new Error(detail?.error ?? `assistant returned ${res.status}`)
+      }
       if (!res.body) throw new Error('no stream')
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+
+      const handle = (line: string) => {
+        if (!line.startsWith('data: ')) return
+        try {
+          const evt = JSON.parse(line.slice(6))
+          if (evt.type === 'sources') {
+            setMessages((m) =>
+              m.map((x) => (x.id === botMsg.id ? { ...x, sources: evt.sources } : x)),
+            )
+          } else if (evt.type === 'text') {
+            setMessages((m) =>
+              m.map((x) => (x.id === botMsg.id ? { ...x, content: x.content + evt.text } : x)),
+            )
+          }
+        } catch {
+          /* ignore malformed frame */
+        }
+      }
 
       for (;;) {
         const { done, value } = await reader.read()
@@ -89,29 +111,22 @@ export function RightPanel() {
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          try {
-            const evt = JSON.parse(line.slice(6))
-            if (evt.type === 'sources') {
-              setMessages((m) =>
-                m.map((x) => (x.id === botMsg.id ? { ...x, sources: evt.sources } : x)),
-              )
-            } else if (evt.type === 'text') {
-              setMessages((m) =>
-                m.map((x) => (x.id === botMsg.id ? { ...x, content: x.content + evt.text } : x)),
-              )
-            }
-          } catch {
-            /* ignore malformed frame */
-          }
-        }
+        for (const line of lines) handle(line)
       }
-    } catch {
+      // The last frame may not have been newline-terminated.
+      buffer += decoder.decode()
+      if (buffer.trim()) handle(buffer.trim())
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
       setMessages((m) =>
         m.map((x) =>
           x.id === botMsg.id
-            ? { ...x, content: 'Something went wrong reaching the assistant. Check the API key or run in demo mode.' }
+            ? {
+                ...x,
+                content: x.content
+                  ? `${x.content}\n\n_Something went wrong: ${detail}_`
+                  : `Something went wrong reaching the assistant: ${detail}`,
+              }
             : x,
         ),
       )

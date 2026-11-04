@@ -286,6 +286,32 @@ export async function saveNote(note: {
   return { note: result.note, conflict: !!result.conflict }
 }
 
+/** Notes that point at an item (and the page they point at). */
+export async function getNotesForItem(
+  itemId: string,
+): Promise<{ id: string; title: string; body_md: string; page_ref: number | null }[]> {
+  if (IS_DEMO) {
+    const ids = demoLinks.filter((l) => l.to_item === itemId).map((l) => l.from_note)
+    return demoNotes
+      .filter((n) => ids.includes(n.id))
+      .map((n) => ({ id: n.id, title: n.title, body_md: n.body_md, page_ref: n.page_ref ?? null }))
+  }
+  const { data: links } = await (await db())
+    .from('links')
+    .select('from_note, to_page')
+    .eq('to_item', itemId)
+  const ids = [...new Set((links ?? []).map((l) => l.from_note).filter(Boolean))] as string[]
+  if (!ids.length) return []
+  const { data: notes } = await (await db()).from('notes').select('id, title, body_md, page_ref').in('id', ids)
+  const pageOf = new Map((links ?? []).map((l) => [l.from_note, l.to_page]))
+  return (notes ?? []).map((n) => ({
+    id: n.id,
+    title: n.title,
+    body_md: n.body_md,
+    page_ref: pageOf.get(n.id) ?? n.page_ref ?? null,
+  }))
+}
+
 export async function getBacklinks(noteId: string) {
   if (IS_DEMO) {
     return demoNotes.filter((n) =>
@@ -543,7 +569,11 @@ export async function getStats() {
 
 /* ─── Search ─────────────────────────────────────────────────── */
 
-export async function searchVault(query: string, limit = 20): Promise<SearchHit[]> {
+export async function searchVault(
+  query: string,
+  limit = 20,
+  mode: 'hybrid' | 'keyword' | 'semantic' = 'hybrid',
+): Promise<SearchHit[]> {
   const q = query.trim().toLowerCase()
   if (!q) return []
 
@@ -568,8 +598,10 @@ export async function searchVault(query: string, limit = 20): Promise<SearchHit[
   // The embedding is best-effort — without one the RPC ranks by keyword.
   const { data } = await (await db()).rpc('search_vault', {
     query_text: query,
-    query_embedding: await embedText(query),
+    // Only embed when the semantic side can contribute.
+    query_embedding: mode === 'keyword' ? null : await embedText(query),
     match_limit: limit,
+    search_mode: mode,
   })
   return (data ?? []) as SearchHit[]
 }

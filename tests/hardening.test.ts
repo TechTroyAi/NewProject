@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { safeFileName, MAX_UPLOAD_BYTES, interleaveBySeries } from '@shelf/shared'
 import { sanitizeUntrustedHtml, htmlToText } from '../apps/worker/src/stages/sanitize-html.ts'
 import { sanitizeHtml } from '../apps/web/src/lib/markdown.ts'
+import { createZip, safeEntryName } from '../apps/web/src/lib/zip.ts'
 import { ratingToGrade } from '../apps/web/src/lib/fsrs.ts'
 import { Rating } from 'ts-fsrs'
 import type { Card } from '@shelf/shared'
@@ -214,5 +215,36 @@ describe('ratingToGrade', () => {
   test('clamps out-of-range ratings', () => {
     assert.equal(ratingToGrade(0), Rating.Again)
     assert.equal(ratingToGrade(99), Rating.Easy)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   Export archive
+   ══════════════════════════════════════════════════════════════ */
+
+describe('createZip', () => {
+  test('writes a well-formed archive', () => {
+    const zip = createZip([
+      { name: 'notes/Hello World.md', data: Buffer.from('# Hello\n', 'utf8') },
+      { name: 'shelf.json', data: Buffer.from('{"a":1}', 'utf8') },
+    ])
+    // Local file header.
+    assert.equal(zip.readUInt32LE(0), 0x04034b50)
+    // End of central directory lives at the tail.
+    const eocd = zip.length - 22
+    assert.equal(zip.readUInt32LE(eocd), 0x06054b50)
+    assert.equal(zip.readUInt16LE(eocd + 8), 2)
+  })
+
+  test('records the UTF-8 name flag', () => {
+    const zip = createZip([{ name: 'notes/café.md', data: Buffer.from('x', 'utf8') }])
+    assert.equal(zip.readUInt16LE(6) & 0x0800, 0x0800)
+  })
+
+  test('safeEntryName strips path separators and leading dots', () => {
+    assert.equal(safeEntryName('../../etc/passwd'), 'passwd')
+    assert.equal(safeEntryName('.hidden'), 'hidden')
+    assert.equal(safeEntryName(''), 'untitled')
+    assert.ok(!safeEntryName('a/b').includes('/'))
   })
 })

@@ -20,12 +20,21 @@ function isTyping(el: EventTarget | null): boolean {
  * Global hotkey registry. Hotkeys are suppressed while the user is typing
  * in an input, textarea, or contenteditable (unless `allowInInput` is set).
  */
-export function useHotkeys(map: Record<string, Handler>, deps: unknown[] = []) {
+export function useHotkeys(
+  map: Record<string, Handler>,
+  deps: unknown[] = [],
+  enabled = true,
+) {
   const ref = useRef(map)
   ref.current = map
+  // Read through a ref so that toggling `enabled` does not need to be
+  // part of the caller's dependency array.
+  const enabledRef = useRef(enabled)
+  enabledRef.current = enabled
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!enabledRef.current) return
       if (isTyping(e.target)) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const key = e.key.toLowerCase()

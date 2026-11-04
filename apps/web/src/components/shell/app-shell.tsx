@@ -43,6 +43,11 @@ export function AppShell({
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // The reader binds `n` to its notes panel, so the shell's single-key
+  // shortcuts stand down there — otherwise pressing `n` would navigate
+  // away from the page you are reading.
+  const readerOwnsKeyboard = pathname.startsWith('/app/read/')
+
   useHotkeys(
     {
       g: () => router.push('/app/graph'),
@@ -51,6 +56,7 @@ export function AppShell({
       l: () => router.push('/app/library'),
     },
     [router],
+    !readerOwnsKeyboard,
   )
 
   // Reset AI scope when leaving a scoped surface.

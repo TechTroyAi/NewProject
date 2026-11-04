@@ -182,6 +182,14 @@ export default function LandingPage() {
             <Lock className="size-3" />
             Upload only what you have the rights to. No public sharing.
           </p>
+          <p className="flex items-center gap-3">
+            <Link href="/terms" className="transition hover:text-fg">
+              Terms
+            </Link>
+            <Link href="/privacy" className="transition hover:text-fg">
+              Privacy
+            </Link>
+          </p>
         </footer>
       </div>
     </div>

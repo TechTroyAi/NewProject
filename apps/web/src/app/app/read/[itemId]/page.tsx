@@ -1,7 +1,14 @@
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'
 import { Reader } from '@/components/reader/reader'
-import { getItemById, getPagesForItem, getProgressMap, getSeriesList } from '@/lib/data'
+import {
+  getItemById,
+  getNoteById,
+  getNotesForItem,
+  getPagesForItem,
+  getProgressMap,
+  getSeriesList,
+} from '@/lib/data'
 import { resolvePageImage } from '@/lib/ai'
 
 export const dynamic = 'force-dynamic'
@@ -11,7 +18,7 @@ export default async function ReadPage({
   searchParams,
 }: {
   params: { itemId: string }
-  searchParams: { p?: string }
+  searchParams: { p?: string; split?: string }
 }) {
   const item = await getItemById(params.itemId)
   if (!item) notFound()
@@ -19,6 +26,7 @@ export default async function ReadPage({
   const pages = await getPagesForItem(params.itemId)
   const series = (await getSeriesList()).find((s) => s.id === item.series_id)
   const progress = (await getProgressMap()).get(params.itemId)
+  const linkedNotes = await getNotesForItem(params.itemId)
 
   const readerPages = pages.map((p) => ({
     idx: p.idx,
@@ -35,6 +43,11 @@ export default async function ReadPage({
     Math.max(0, readerPages.length - 1),
   )
 
+  // `?split=note:<id>` opens the note beside the page.
+  const splitRaw = searchParams?.split ?? ''
+  const splitId = splitRaw.startsWith('note:') ? splitRaw.slice(5).trim() : ''
+  const splitNote = splitId ? await getNoteById(splitId) : null
+
   return (
     <Suspense fallback={<div className="h-full bg-bg" />}>
       <Reader
@@ -48,6 +61,12 @@ export default async function ReadPage({
         }}
         initialPage={initialPage}
         savedMaxPageRead={progress?.max_page_read ?? 0}
+        splitNote={
+          splitNote
+            ? { id: splitNote.id, title: splitNote.title, body_md: splitNote.body_md }
+            : null
+        }
+        linkedNotes={linkedNotes.map((n) => ({ id: n.id, title: n.title, page_ref: n.page_ref }))}
       />
     </Suspense>
   )

@@ -34,6 +34,65 @@ export function SettingsClient({
 }) {
   const router = useRouter()
   const { theme, accent, setTheme, setAccent } = useTheme()
+  const [busy, setBusy] = React.useState<'zip' | 'json' | 'delete' | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = React.useState(false)
+  const [message, setMessage] = React.useState<string | null>(null)
+
+  async function downloadExport(format: 'zip' | 'json') {
+    setBusy(format)
+    setMessage(null)
+    try {
+      const res = await fetch(`/api/account/export?format=${format}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `export failed (${res.status})`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `shelf-export.${format}`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setMessage('Export downloaded.')
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'export failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function deleteAccount() {
+    setBusy('delete')
+    setMessage(null)
+    try {
+      const res = await fetch('/api/account/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirm: 'DELETE' }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `delete failed (${res.status})`)
+      }
+      // Drop the local drafts too — they belong to the account.
+      try {
+        const { clearAllDrafts } = await import('@/lib/drafts')
+        await clearAllDrafts()
+      } catch {
+        /* not fatal */
+      }
+      setConfirmingDelete(false)
+      setMessage('Your account has been deleted.')
+      router.push('/')
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'delete failed')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-5 sm:px-6">
@@ -282,30 +341,63 @@ export function SettingsClient({
               <CardTitle>Your data</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-4 border-b border-line/6 pb-4">
+              <div className="flex flex-wrap items-center gap-4 border-b border-line/6 pb-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium">Export everything</p>
                   <p className="mt-0.5 text-[12px] text-muted">
-                    Originals plus every note as markdown. Drop the markdown folder straight into Obsidian.
+                    Every note as markdown plus the full database dump. Drop the markdown folder straight into
+                    Obsidian.
                   </p>
                 </div>
-                <Button size="sm" variant="secondary">
-                  <Download /> Export
-                </Button>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => downloadExport('zip')}
+                    disabled={!!busy}
+                  >
+                    <Download /> {busy === 'zip' ? 'Preparing…' : 'Export .zip'}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => downloadExport('json')} disabled={!!busy}>
+                    JSON
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium">Delete account</p>
                   <p className="mt-0.5 text-[12px] text-muted">
                     Removes every file, note and card. Files are unrecoverable after 30 days.
                   </p>
                 </div>
-                <Button size="sm" variant="danger">
+                <Button size="sm" variant="danger" onClick={() => setConfirmingDelete(true)} disabled={!!busy}>
                   <Trash2 /> Delete
                 </Button>
               </div>
+              {message && (
+                <p className="border-t border-line/6 pt-3 text-[12px] text-muted">{message}</p>
+              )}
             </CardContent>
           </Card>
+
+          {confirmingDelete && (
+            <div className="fixed inset-0 z-[120] grid place-items-center bg-black/60 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-sm rounded-2xl border border-line/12 bg-surface p-5 shadow-pop">
+                <h2 className="text-[15px] font-semibold tracking-[-.01em]">Delete your account?</h2>
+                <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
+                  Every file, note, card and review will be removed. This cannot be undone.
+                </p>
+                <div className="mt-5 flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setConfirmingDelete(false)} disabled={busy === 'delete'}>
+                    Cancel
+                  </Button>
+                  <Button variant="danger" onClick={() => void deleteAccount()} disabled={busy === 'delete'}>
+                    {busy === 'delete' ? 'Deleting…' : 'Delete everything'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

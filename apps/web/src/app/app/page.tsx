@@ -20,6 +20,7 @@ import { AiSuggestStrip, ContinueReading } from '@/components/dashboard/continue
 import { RecentNotes } from '@/components/dashboard/recent-notes'
 import { GraphPreview } from '@/components/dashboard/graph-preview'
 import { AiPicks } from '@/components/dashboard/ai-picks'
+import { WidgetErrorBoundary } from '@/components/shell/widget-error-boundary'
 import {
   getContinueReading,
   getDueCards,
@@ -174,7 +175,9 @@ export default async function DashboardPage() {
               </Link>
             </CardHeader>
             <CardContent className="p-0">
-              <ContinueReading items={continueItems} />
+              <WidgetErrorBoundary label="Continue reading">
+                <ContinueReading items={continueItems} />
+              </WidgetErrorBoundary>
             </CardContent>
             <AiSuggestStrip text="You’re 4 chapters behind on Blue Lock — your theory note predicted ch. 190. Catch up before the arc resolves?" />
           </Card>
@@ -190,7 +193,9 @@ export default async function DashboardPage() {
               </Link>
             </CardHeader>
             <CardContent className="p-0">
-              <GraphPreview nodes={graph.nodes} edges={graph.edges} />
+              <WidgetErrorBoundary label="Knowledge graph">
+                <GraphPreview nodes={graph.nodes} edges={graph.edges} />
+              </WidgetErrorBoundary>
             </CardContent>
           </Card>
         </div>
@@ -207,15 +212,17 @@ export default async function DashboardPage() {
               </Link>
             </CardHeader>
             <CardContent className="p-0">
-              <RecentNotes
+              <WidgetErrorBoundary label="Recent notes">
+                <RecentNotes
                 notes={notes.map((n) => ({
                   id: n.id,
                   title: n.title,
                   updated_at: n.updated_at,
                   is_ai_draft: n.is_ai_draft,
                   excerpt: n.body_md.replace(/[#>*_`\[\]]/g, '').replace(/\n+/g, ' ').slice(0, 90),
-                }))}
-              />
+                  }))}
+                />
+              </WidgetErrorBoundary>
             </CardContent>
           </Card>
 
@@ -228,7 +235,9 @@ export default async function DashboardPage() {
               <Sparkles className="size-3.5 text-accent" />
             </CardHeader>
             <CardContent className="p-0">
-              <AiPicks picks={aiPicks} />
+              <WidgetErrorBoundary label="Assistant picks">
+                <AiPicks picks={aiPicks} />
+              </WidgetErrorBoundary>
             </CardContent>
           </Card>
 

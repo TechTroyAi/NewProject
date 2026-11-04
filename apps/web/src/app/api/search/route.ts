@@ -14,6 +14,6 @@ export async function GET(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'invalid query' }, { status: 400 })
   }
-  const hits = await searchVault(parsed.data.q, parsed.data.limit)
+  const hits = await searchVault(parsed.data.q, parsed.data.limit, parsed.data.mode)
   return NextResponse.json({ hits })
 }

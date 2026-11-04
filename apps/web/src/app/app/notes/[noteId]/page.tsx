@@ -4,7 +4,13 @@ import { getBacklinks, getItems, getNoteById, getNotes, getSeriesList } from '@/
 
 export const dynamic = 'force-dynamic'
 
-export default async function NotePage({ params }: { params: { noteId: string } }) {
+export default async function NotePage({
+  params,
+  searchParams,
+}: {
+  params: { noteId: string }
+  searchParams: { title?: string }
+}) {
   const [note, notes, items, series] = await Promise.all([
     getNoteById(params.noteId),
     getNotes(),
@@ -12,12 +18,14 @@ export default async function NotePage({ params }: { params: { noteId: string } 
     getSeriesList(),
   ])
 
-  // `/app/notes/new` → start a blank note.
+  // `/app/notes/new` → start a blank note. Unresolved wikilinks link
+  // here with the title they were after, so it must not be dropped.
   const isNew = params.noteId === 'new'
+  const prefill = (searchParams?.title ?? '').trim().slice(0, 200)
   const resolvedNote = isNew
     ? {
         id: 'new',
-        title: '',
+        title: prefill,
         body_md: '',
         item_id: null,
         page_ref: null,

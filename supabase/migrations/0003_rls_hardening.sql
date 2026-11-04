@@ -30,7 +30,8 @@
 create or replace function search_vault(
   query_text text,
   query_embedding vector(1536) default null,
-  match_limit int default 20
+  match_limit int default 20,
+  search_mode text default 'hybrid'
 )
 returns table (
   id text,
@@ -52,6 +53,7 @@ as $$
                    plainto_tsquery('english', query_text)) as r
     from items i
     where i.user_id = auth.uid()
+      and search_mode <> 'semantic'
       and to_tsvector('english', coalesce(i.ai_summary,'') || ' ' || i.title)
           @@ plainto_tsquery('english', query_text)
     limit 50
@@ -62,6 +64,7 @@ as $$
                    plainto_tsquery('english', query_text)) as r
     from notes n
     where n.user_id = auth.uid()
+      and search_mode <> 'semantic'
       and to_tsvector('english', n.title || ' ' || n.body_md)
           @@ plainto_tsquery('english', query_text)
     limit 50
@@ -70,6 +73,7 @@ as $$
     select i.id, i.title, (i.embedding <=> query_embedding)::double precision as r
     from items i
     where i.user_id = auth.uid()
+      and search_mode <> 'keyword'
       and i.embedding is not null
       and query_embedding is not null
     order by i.embedding <=> query_embedding

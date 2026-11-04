@@ -3,8 +3,11 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import {
   ArrowLeft,
+  ArrowRight,
+  BookOpen,
   Columns2,
   FileText,
   Grid2x2,
@@ -41,20 +44,32 @@ export interface ReaderItem {
 
 type Mode = 'strip' | 'paged'
 
+/** A note shown beside the page — the `?split=note:<id>` view. */
+export interface SplitNote {
+  id: string
+  title: string
+  body_md: string
+}
+
 export function Reader({
   item,
   initialPage,
   savedMaxPageRead = 0,
+  splitNote = null,
+  linkedNotes = [],
 }: {
   item: ReaderItem
   initialPage: number
   savedMaxPageRead?: number
+  splitNote?: SplitNote | null
+  linkedNotes?: { id: string; title: string; page_ref: number | null }[]
 }) {
   const router = useRouter()
   const params = useSearchParams()
   const [mode, setMode] = React.useState<Mode>('strip')
   const [rtl, setRtl] = React.useState(false)
   const [scale, setScale] = React.useState(1)
+  const [spread, setSpread] = React.useState(false)
   const [page, setPage] = React.useState(initialPage)
   const [showNotes, setShowNotes] = React.useState(false)
   const [chrome, setChrome] = React.useState(true)
@@ -132,6 +147,73 @@ export function Reader({
     [mode, current, pageCount, rtl, goTo],
   )
 
+  /* ── preload the next pages ───────────────────────────────── */
+  // Paged mode jumps instantly, so the images that are about to be
+  // shown are fetched before they are asked for.
+  React.useEffect(() => {
+    const urls: string[] = []
+    for (let i = 1; i <= 3; i++) {
+      const page = item.pages[current + i]
+      if (page?.src) urls.push(page.src)
+    }
+    if (!urls.length) return
+    const images = urls.map((src) => {
+      const img = new window.Image()
+      img.src = src
+      return img
+    })
+    return () => {
+      for (const img of images) {
+        img.src = ''
+      }
+    }
+  }, [current, item.pages])
+
+  /* ── pinch to zoom ─────────────────────────────────────────── */
+  const pinch = React.useRef<{ distance: number; scale: number } | null>(null)
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 2) return
+    const [a, b] = [e.touches[0], e.touches[1]]
+    pinch.current = {
+      distance: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+      scale,
+    }
+  }
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    const start = pinch.current
+    if (!start || e.touches.length !== 2) return
+    const [a, b] = [e.touches[0], e.touches[1]]
+    const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+    if (!start.distance) return
+    const next = Math.min(3, Math.max(0.5, start.scale * (distance / start.distance)))
+    setScale(next)
+  }
+
+  const onTouchEnd = () => {
+    pinch.current = null
+  }
+
+  /* ── click thirds ──────────────────────────────────────────── */
+  const pageAreaRef = React.useRef<HTMLDivElement>(null)
+
+  const onPageClick = (e: React.MouseEvent) => {
+    if (mode === 'strip') {
+      setChrome((v) => !v)
+      return
+    }
+    const el = pageAreaRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const ratio = (e.clientX - rect.left) / rect.width
+    // A spread shows two pages at a time, so it turns by two.
+    const step = spread ? 2 : 1
+    if (ratio < 1 / 3) goTo(current - (rtl ? -step : step))
+    else if (ratio > 2 / 3) goTo(current + (rtl ? -step : step))
+    else setChrome((v) => !v)
+  }
+
   /* ── virtualised long strip ────────────────────────────────── */
   const virtualizer = useVirtualizer({
     count: item.pages.length,
@@ -164,6 +246,87 @@ export function Reader({
     el?.addEventListener('scroll', onScroll, { passive: true })
     return () => el?.removeEventListener('scroll', onScroll)
   }, [mode, virtualizer, page, persist])
+
+  /* ── the page surface, shared by the plain and split layouts ── */
+  const pageArea = (
+      <div
+        ref={scrollRef}
+        className="relative min-w-0 flex-1 overflow-y-auto"
+        onClick={onPageClick}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+      >
+        {mode === 'strip' ? (
+          <div className="mx-auto w-full max-w-[900px] px-3 py-4">
+            <div
+              style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}
+              className="relative"
+            >
+              {virtualizer.getVirtualItems().map((v) => {
+                const p = item.pages[v.index]
+                if (!p) return null
+                return (
+                  <div
+                    key={v.key}
+                    data-index={v.index}
+                    ref={virtualizer.measureElement}
+                    className="absolute inset-x-0 flex justify-center pb-3"
+                    style={{ transform: `translateY(${v.start}px)` }}
+                  >
+                    <div
+                      className="relative overflow-hidden rounded-lg border border-line/8 bg-raised shadow-card"
+                      style={{ width: `${100 * scale}%`, maxWidth: '100%' }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={p.src}
+                        alt={`Page ${p.idx + 1}`}
+                        loading="lazy"
+                        decoding="async"
+                        className="block w-full"
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ) : (
+          <div ref={pageAreaRef} className="grid h-full place-items-center px-4 py-4">
+            {spread ? (
+              <div className="flex max-h-full max-w-[1400px] items-stretch justify-center gap-2">
+                {[current, current + 1].map((idx) =>
+                  item.pages[idx] ? (
+                    <div
+                      key={idx}
+                      className="relative overflow-hidden rounded-lg border border-line/8 bg-raised shadow-pop"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={item.pages[idx].src}
+                        alt={`Page ${idx + 1}`}
+                        className="block max-h-[calc(100dvh-100px)] w-auto"
+                      />
+                    </div>
+                  ) : null,
+                )}
+              </div>
+            ) : (
+              <div className="relative max-h-full max-w-[860px] overflow-hidden rounded-lg border border-line/8 bg-raised shadow-pop">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item.pages[current]?.src}
+                  alt={`Page ${current + 1}`}
+                  className="block max-h-[calc(100dvh-100px)] w-auto"
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+  )
 
   return (
     <div className="relative h-full w-full bg-bg">
@@ -262,60 +425,32 @@ export function Reader({
       </div>
 
       <div className="flex h-full pt-[52px]">
-        {/* ── pages ────────────────────────────────────────────── */}
-        <div
-          ref={scrollRef}
-          className="relative min-w-0 flex-1 overflow-y-auto"
-          onClick={() => setChrome((v) => !v)}
-        >
-          {mode === 'strip' ? (
-            <div className="mx-auto w-full max-w-[900px] px-3 py-4">
-              <div
-                style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}
-                className="relative"
+        {splitNote ? (
+          <PanelGroup direction="horizontal" className="h-full w-full">
+            <Panel defaultSize={62} minSize={30} className="min-w-0">
+              {pageArea}
+            </Panel>
+            <PanelResizeHandle className="group relative w-1 shrink-0 bg-line/8 transition hover:bg-accent/40" />
+            <Panel defaultSize={38} minSize={20} className="min-w-0 overflow-y-auto border-l border-line/8 bg-surface/40 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <FileText className="size-4 text-accent" />
+                <p className="text-[13px] font-semibold">{splitNote.title}</p>
+              </div>
+              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-relaxed text-muted">
+                {splitNote.body_md}
+              </pre>
+              <Link
+                href={`/app/notes/${splitNote.id}`}
+                className="mt-4 inline-flex items-center gap-1 text-[11.5px] text-accent hover:underline"
               >
-                {virtualizer.getVirtualItems().map((v) => {
-                  const p = item.pages[v.index]
-                  if (!p) return null
-                  return (
-                    <div
-                      key={v.key}
-                      data-index={v.index}
-                      ref={virtualizer.measureElement}
-                      className="absolute inset-x-0 flex justify-center pb-3"
-                      style={{ transform: `translateY(${v.start}px)` }}
-                    >
-                      <div
-                        className="relative overflow-hidden rounded-lg border border-line/8 bg-raised shadow-card"
-                        style={{ width: `${100 * scale}%`, maxWidth: '100%' }}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={p.src}
-                          alt={`Page ${p.idx + 1}`}
-                          loading="lazy"
-                          decoding="async"
-                          className="block w-full"
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="grid h-full place-items-center px-4 py-4">
-              <div className="relative max-h-full max-w-[860px] overflow-hidden rounded-lg border border-line/8 bg-raised shadow-pop">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={item.pages[current]?.src}
-                  alt={`Page ${current + 1}`}
-                  className="block max-h-[calc(100dvh-100px)] w-auto"
-                />
-              </div>
-            </div>
-          )}
-        </div>
+                Open the note <ArrowRight className="size-3" />
+              </Link>
+            </Panel>
+          </PanelGroup>
+        ) : (
+          <>
+        {pageArea}
+
 
         {/* ── side panel ──────────────────────────────────────── */}
         {showNotes && (
@@ -332,32 +467,55 @@ export function Reader({
             </Button>
             <div className="mt-5 border-t border-line/8 pt-4">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-[.1em] text-faint">Linked notes</p>
-              <p className="text-[12px] text-faint">None yet.</p>
+              {linkedNotes.length ? (
+                <ul className="space-y-1">
+                  {linkedNotes.map((n) => (
+                    <li key={n.id} className="flex items-center gap-1.5">
+                      <Link
+                        href={`/app/notes/${n.id}`}
+                        className="min-w-0 flex-1 truncate text-[12px] text-muted transition hover:text-fg"
+                      >
+                        {n.title}
+                        {n.page_ref !== null && (
+                          <span className="ml-1 text-[10.5px] text-faint">p.{n.page_ref + 1}</span>
+                        )}
+                      </Link>
+                      <button
+                        onClick={() =>
+                          router.push(`/app/read/${item.id}?p=${current}&split=note:${n.id}`)
+                        }
+                        className="shrink-0 rounded-md border border-line/10 px-1.5 py-0.5 text-[10.5px] text-faint transition hover:border-accent/30 hover:text-accent"
+                        title="Open the note beside the page"
+                      >
+                        Split
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12px] text-faint">None yet.</p>
+              )}
             </div>
           </aside>
         )}
+          </>
+        )}
       </div>
 
-      {/* ── click zones (paged mode) ──────────────────────────── */}
+      {/* ── spread toggle ─────────────────────────────────────── */}
       {mode === 'paged' && (
-        <>
+        <Tooltip label={spread ? 'Single page' : 'Two pages side by side'}>
           <button
-            onClick={() => goTo(current + (rtl ? 1 : -1))}
+            onClick={() => setSpread((v) => !v)}
             className={cn(
-              'absolute bottom-0 top-[52px] w-[22%] cursor-w-resize transition hover:bg-fg/[.03]',
-              rtl ? 'right-0' : 'left-0',
+              'absolute bottom-3 right-3 z-20 grid size-8 place-items-center rounded-lg border border-line/10 bg-bg/85 text-faint backdrop-blur-xl transition hover:text-fg',
+              spread && 'border-accent/40 text-accent',
             )}
-            aria-label="Previous page"
-          />
-          <button
-            onClick={() => goTo(current + (rtl ? -1 : 1))}
-            className={cn(
-              'absolute bottom-0 top-[52px] w-[22%] cursor-e-resize transition hover:bg-fg/[.03]',
-              rtl ? 'left-0' : 'right-0',
-            )}
-            aria-label="Next page"
-          />
-        </>
+            aria-label={spread ? 'Single page' : 'Two pages side by side'}
+          >
+            <BookOpen className="size-3.5" />
+          </button>
+        </Tooltip>
       )}
 
       {/* ── footer status ─────────────────────────────────────── */}

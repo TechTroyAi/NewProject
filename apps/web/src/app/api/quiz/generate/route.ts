@@ -2,9 +2,13 @@ import { NextResponse } from 'next/server'
 import { generateQuizCards } from '@/lib/ai'
 import { getNoteById, getPagesForItem } from '@/lib/data'
 import { requireUser } from '@/lib/api'
+import { rateLimit, rateLimitHeaders, rateLimitKey } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
+
+const AI_RATE_LIMIT = 10
+const AI_RATE_WINDOW = 300
 
 /**
  * Generate cards from a note. `spoiler_limit_page` is set to the source
@@ -13,6 +17,14 @@ export const runtime = 'nodejs'
 export async function POST(req: Request) {
   const auth = await requireUser()
   if ('response' in auth) return auth.response
+  const limited = await rateLimit(rateLimitKey(req, auth.userId, 'ai'), AI_RATE_LIMIT, AI_RATE_WINDOW)
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: 'too many requests — give it a moment' },
+      { status: 429, headers: rateLimitHeaders(limited) },
+    )
+  }
+
   const body = await req.json().catch(() => null)
   const noteId = body?.noteId
   if (!noteId) return NextResponse.json({ error: 'noteId required' }, { status: 400 })
@@ -43,5 +55,5 @@ export async function POST(req: Request) {
       spoiler_limit_page: c.sourcePage ?? 0,
     }))
 
-  return NextResponse.json({ cards })
+  return NextResponse.json({ cards }, { headers: rateLimitHeaders(limited) })
 }
