@@ -39,6 +39,7 @@ Then open:
 | Route | What it is |
 |---|---|
 | `/` | Landing page |
+| `/login`, `/signup` | Credentials (Supabase auth; demo mode explains itself) |
 | `/app` | Dashboard — continue reading, recent notes, graph preview, assistant picks |
 | `/app/library` | Library grid, grouped by series |
 | `/app/library/[seriesId]` | Series page with chapter list |
@@ -50,6 +51,8 @@ Then open:
 | `/app/quiz/session` | Active session (FSRS scheduling, keyboard `1`–`4`) |
 | `/app/graph` | Force-directed graph, 5 node types |
 | `/app/inbox` | Needs-review queue |
+| `/app/sources` | Public source catalogue (Mihon/Keiyoushi), connect a source |
+| `/app/sources/[key]` | Browse a connected source, import chapters |
 | `/app/stats` | Heatmap, weak spots |
 | `/app/settings/[section]` | general · reader · ai · quiz · data · shortcuts |
 
@@ -121,6 +124,57 @@ The item flips to `ready` right after **convert**, so you can start reading whil
 
 ---
 
+## Public sources — manga from the Mihon catalogue
+
+Shelf does not ask you to upload a manga you do not own. It reads the
+**same extension catalogue Mihon/Tachiyomi uses** — the public
+[`keiyoushi/extensions`](https://github.com/keiyoushi/extensions) repository — and
+lets you connect any of its sources.
+
+```
+keiyoushi/extensions  →  index.json  →  1,454 extensions  →  2,379 language sources
+                                                                     ↓
+                                              Shelf adapters (MangaDex, Madara, …)
+                                                                     ↓
+                                        series + items + pages, exactly like an upload
+```
+
+* **The catalogue is fetched live** from the public repository through the GitHub
+  contents API (the `index.json` blob), cached for six hours, with a bundled
+  snapshot as a fallback so the app still works offline. The `Sources` page shows
+  the live commit SHA it read.
+* **1,454 extensions across 150 languages** are flattened into one descriptor per
+  (extension, language) pair — 2,379 connectable sources in total.
+* **Extension icons are proxied** through `/api/sources/icon`, so the browser never
+  depends on a third-party CDN.
+* **Adapters do the fetching.** A Mihon extension is Kotlin; a web app can only
+  talk to sources that expose an HTTP API, so adapters are added one provider at a
+  time. Two ship today:
+  * `mangadex` — the full MangaDex REST API (search, chapters, page images).
+  * `madara` — a generic adapter for the Madara WordPress theme behind a large
+    share of the catalogue, probed at runtime.
+  Sources without an adapter still appear in the catalogue and can be connected —
+  they are marked *metadata only* until an adapter lands.
+* **Importing produces normal shelf items.** A remote manga becomes a `series`
+  plus one `item` per chapter, so the reader, progress tracking, notes, wikilinks,
+  quizzes and the graph all work unchanged. The worker downloads the chapter pages
+  into storage in the `remote` stage and flips the item to `ready`.
+* **It degrades, it does not break.** If a source is unreachable the API answers
+  with an offline sample catalogue and says so, rather than failing the page.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/sources` | The catalogue: extensions, languages, adapter support, connected state |
+| `GET /api/sources/icon?path=…` | Extension icon, proxied via the GitHub API |
+| `GET /api/sources/browse?source=…&q=…` | Search a connected source |
+| `GET /api/sources/chapters?source=…&mangaId=…` | Chapters for a manga |
+| `POST /api/sources/connect` | Connect / disconnect a source |
+| `POST /api/sources/import` | Import a manga as a series + items |
+
+Database: `supabase/migrations/0002_sources.sql` adds the `sources` table, the
+`items.origin / source_id / remote_id / remote_chapter_id` columns, and the
+`connect_source` / `import_remote_series` RPCs.
+
 ## The three ideas worth stealing
 
 ### 1. The spoiler guard is SQL, not a prompt
@@ -166,6 +220,7 @@ Notes, series, chapters, AI-generated wikis and image nodes share a single graph
 │     ├─ src/stages/            # sniff · convert · ocr · chunk · embed · summarize · match
 │     └─ Dockerfile
 ├─ packages/shared/             # zod contracts + wikilink/filename parsing
+├─ packages/sources/            # public catalogue reader + provider adapters
 └─ supabase/migrations/         # schema + RLS + the spoiler-guard functions
 ```
 
@@ -192,6 +247,8 @@ Notes, series, chapters, AI-generated wikis and image nodes share a single graph
 - **Sanitised markdown** — wikilinks are substituted through opaque placeholders, so no raw HTML reaches the renderer.
 - **BYO API keys** encrypted at rest and never logged.
 - **No public sharing** of uploaded files, ever. Terms require you only upload what you have the rights to.
+- **Outbound fetches are constrained** — remote pages are size-capped and magic-byte
+  checked before they are stored, and the catalogue is read from one public repository.
 
 ## Deliberate deviations from the original spec
 

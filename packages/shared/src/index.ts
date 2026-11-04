@@ -276,6 +276,9 @@ export const QuizAnswerSchema = z.object({
 })
 export type QuizAnswer = z.infer<typeof QuizAnswerSchema>
 
+/* ─── Public sources ─────────────────────────────────────────── */
+export * from './sources'
+
 /* ─── Wikilink parsing ───────────────────────────────────────── */
 
 export const WIKILINK_RE = /\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]/g

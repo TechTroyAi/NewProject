@@ -9,6 +9,13 @@ import { chunkPages } from './stages/chunk.js'
 import { embedChunks } from './stages/embed.js'
 import { summarize } from './stages/summarize.js'
 import { matchSeries } from './stages/match.js'
+import {
+  descriptorFromRow,
+  downloadRemoteImage,
+  planRemotePages,
+  sniffImageType,
+} from './stages/remote.js'
+import { resolveAdapter } from '@shelf/sources'
 import type { Job, Stage } from './types.js'
 
 /* ══════════════════════════════════════════════════════════════
@@ -276,6 +283,79 @@ async function runMatch(job: Job) {
   await finishJob(job, { status: 'done', progress: 100 })
 }
 
+/**
+ * Fetch a chapter that was imported from a public source and store
+ * its pages, so the item behaves exactly like an uploaded one.
+ */
+async function runRemote(job: Job) {
+  const { data: item } = await sb.from('items').select('*').eq('id', job.item_id).single()
+  if (!item?.source_id || !item.remote_chapter_id) {
+    await finishJob(job, { status: 'done', progress: 100 })
+    return
+  }
+
+  const { data: sourceRow } = await sb.from('sources').select('*').eq('id', item.source_id).single()
+  if (!sourceRow) {
+    await sb
+      .from('items')
+      .update({ status: 'needs_review', status_detail: 'Source no longer connected' })
+      .eq('id', job.item_id)
+    await finishJob(job, { status: 'done', progress: 100 })
+    return
+  }
+
+  const source = descriptorFromRow(sourceRow as any)
+  const adapter = resolveAdapter(source)
+  if (!adapter) {
+    await sb
+      .from('items')
+      .update({ status: 'needs_review', status_detail: 'No adapter for this source' })
+      .eq('id', job.item_id)
+    await finishJob(job, { status: 'done', progress: 100 })
+    return
+  }
+
+  const plan = await planRemotePages(source, item.remote_chapter_id, adapter)
+  if (!plan.length) {
+    await sb
+      .from('items')
+      .update({ status: 'needs_review', status_detail: 'No pages returned by source' })
+      .eq('id', job.item_id)
+    await finishJob(job, { status: 'done', progress: 100 })
+    return
+  }
+
+  await sb.from('pages').delete().eq('item_id', job.item_id)
+
+  const rows: any[] = []
+  for (const [i, page] of plan.entries()) {
+    await setProgress(job, Math.round((i / plan.length) * 95))
+    const raw = await downloadRemoteImage(page.url)
+    const type = sniffImageType(raw)
+    if (!type) throw new Error(`unsupported image type from ${page.url}`)
+
+    const img = await webp(raw)
+    const imagePath = await upload(
+      `pages/${job.user_id}/${job.item_id}/${String(i).padStart(5, '0')}.webp`,
+      img,
+      'image/webp',
+    )
+    rows.push({ item_id: job.item_id, idx: i, image_path: imagePath, width: null, height: null, text: null })
+  }
+
+  if (rows.length) await sb.from('pages').insert(rows)
+
+  const cover = await thumbnails({ buffer: await downloadRemoteImage(plan[0].url) }, true)
+  const coverPath = await upload(`thumbs/${job.user_id}/${job.item_id}/cover.webp`, cover, 'image/webp')
+
+  await sb
+    .from('items')
+    .update({ page_count: rows.length, cover_path: coverPath, status: 'ready' })
+    .eq('id', job.item_id)
+
+  await finishJob(job, { status: 'done', progress: 100 })
+}
+
 /* ─── storage helper ─────────────────────────────────────────── */
 
 async function downloadToTemp(path: string) {
@@ -291,6 +371,7 @@ async function downloadToTemp(path: string) {
 
 const RUNNERS: Record<Stage, (job: Job) => Promise<void>> = {
   sniff: runSniff,
+  remote: runRemote,
   convert: runConvert,
   ocr: runOcr,
   chunk: runChunk,

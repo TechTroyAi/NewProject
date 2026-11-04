@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@shelf/shared'],
+  transpilePackages: ['@shelf/shared', '@shelf/sources'],
   experimental: {
     // server actions body size limit (clip uploads / long notes)
     serverActions: { bodySizeLimit: '4mb' },

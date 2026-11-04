@@ -26,6 +26,7 @@ const CRUMBS: Record<string, string> = {
   '/app/notes': 'Notes',
   '/app/quiz': 'Quiz',
   '/app/graph': 'Graph',
+  '/app/sources': 'Sources',
   '/app/inbox': 'Inbox',
   '/app/stats': 'Stats',
 }

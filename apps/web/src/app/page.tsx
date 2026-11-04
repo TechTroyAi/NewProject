@@ -83,10 +83,16 @@ export default function LandingPage() {
           </div>
           <nav className="flex items-center gap-1">
             <Link
-              href="/app"
+              href="/login"
               className="rounded-xl px-3 py-2 text-[13px] text-muted transition hover:bg-raised hover:text-fg"
             >
               Sign in
+            </Link>
+            <Link
+              href="/signup"
+              className="rounded-xl px-3 py-2 text-[13px] text-muted transition hover:bg-raised hover:text-fg"
+            >
+              Create account
             </Link>
             <Link href="/app">
               <Button size="sm">

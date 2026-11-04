@@ -12,7 +12,7 @@
     "build": "npm run build --workspace @shelf/web",
     "start": "npm run start --workspace @shelf/web",
     "lint": "npm run lint --workspace @shelf/web",
-    "typecheck": "npm run typecheck --workspace @shelf/web && npm --prefix apps/worker run typecheck",
+    "typecheck": "npm run typecheck --workspace @shelf/web && npm --prefix apps/worker run typecheck && npm --prefix packages/sources run typecheck",
     "worker:dev": "npm --prefix apps/worker run dev",
     "test": "node --import tsx --test tests/*.test.ts",
     "worker:build": "docker build -t shelf-worker apps/worker"

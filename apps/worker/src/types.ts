@@ -1,5 +1,6 @@
 export type Stage =
   | 'sniff'
+  | 'remote'
   | 'convert'
   | 'ocr'
   | 'chunk'

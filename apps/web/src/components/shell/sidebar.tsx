@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   BookOpen,
   Boxes,
+  Compass,
   ChartNoAxesColumn,
   ChevronDown,
   FileText,
@@ -27,6 +28,7 @@ const NAV = [
   { href: '/app/notes', label: 'Notes', icon: FileText, count: 284 },
   { href: '/app/quiz', label: 'Quiz', icon: Target, count: 10 },
   { href: '/app/graph', label: 'Graph', icon: Network },
+  { href: '/app/sources', label: 'Sources', icon: Compass },
   { href: '/app/inbox', label: 'Inbox', icon: Inbox, count: 3 },
   { href: '/app/stats', label: 'Stats', icon: ChartNoAxesColumn },
 ]
