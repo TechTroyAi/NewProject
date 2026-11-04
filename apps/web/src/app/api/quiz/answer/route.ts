@@ -2,12 +2,15 @@ import { NextResponse } from 'next/server'
 import { QuizAnswerSchema } from '@shelf/shared'
 import { getAllCards, saveCardReview } from '@/lib/data'
 import { reviewCard } from '@/lib/fsrs'
+import { requireUser } from '@/lib/api'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 /** Grade a card and schedule the next review with FSRS. */
 export async function POST(req: Request) {
+  const auth = await requireUser()
+  if ('response' in auth) return auth.response
   const parsed = QuizAnswerSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'invalid payload' }, { status: 400 })
 

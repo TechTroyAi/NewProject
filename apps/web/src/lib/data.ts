@@ -1,8 +1,10 @@
 import 'server-only'
 import './env'
 import type { Card, GraphEdge, GraphNode, Item, Note, Progress, Series } from '@shelf/shared'
+import { interleaveBySeries } from '@shelf/shared'
 import { embedText } from './ai-provider'
 import { getSupabaseAdmin, IS_DEMO } from './db'
+import { getSessionClient, getUserId } from './session'
 import {
   DEMO_USER_ID,
   demoActivity,
@@ -25,6 +27,19 @@ import {
    ══════════════════════════════════════════════════════════════ */
 
 const admin = () => getSupabaseAdmin()
+
+/**
+ * The request's Supabase client, bound to the caller's session.
+ *
+ * It uses the *anon* key, so the RLS policies in the migration are
+ * what decide which rows this request can touch. Application code
+ * cannot leak another user's data by forgetting a filter.
+ */
+const db = async () => {
+  const client = await getSessionClient()
+  if (!client) throw new Error('Supabase is not configured')
+  return client
+}
 
 export interface SeriesWithItems extends Series {
   items: Item[]
@@ -63,9 +78,7 @@ export async function getProfile() {
       created_at: new Date().toISOString(),
     }
   }
-  const sb = admin()
-  if (!sb) throw new Error('Supabase not configured')
-  const { data } = await sb.from('profiles').select('*').eq('id', DEMO_USER_ID).maybeSingle()
+  const { data } = await (await db()).from('profiles').select('*').maybeSingle()
   return data
 }
 
@@ -73,7 +86,7 @@ export async function getProfile() {
 
 export async function getSeriesList(): Promise<Series[]> {
   if (IS_DEMO) return demoSeries
-  const { data } = await admin()!.from('series').select('*').order('title')
+  const { data } = await (await db()).from('series').select('*').order('title')
   return data ?? []
 }
 
@@ -94,7 +107,7 @@ export async function getItems(filters: LibraryFilters = {}): Promise<Item[]> {
     }
     return items
   }
-  let q = admin()!.from('items').select('*')
+  let q = (await db()).from('items').select('*')
   if (filters.q) q = q.ilike('title', `%${filters.q}%`)
   const { data } = await q.order('created_at', { ascending: false })
   return data ?? []
@@ -106,7 +119,7 @@ export async function getItemById(id: string): Promise<(Item & { series?: Series
     if (!item) return null
     return { ...item, series: demoSeries.find((s) => s.id === item.series_id) ?? null }
   }
-  const { data } = await admin()!.from('items').select('*, series(*)').eq('id', id).maybeSingle()
+  const { data } = await (await db()).from('items').select('*, series(*)').eq('id', id).maybeSingle()
   return data ?? null
 }
 
@@ -137,7 +150,7 @@ export async function getPagesForItem(itemId: string): Promise<PageRow[]> {
       height: 1700,
     }))
   }
-  const { data } = await admin()!.from('pages').select('*').eq('item_id', itemId).order('idx')
+  const { data } = await (await db()).from('pages').select('*').eq('item_id', itemId).order('idx')
   return (data ?? []).map((p) => ({
     idx: p.idx,
     imagePath: p.image_path,
@@ -151,7 +164,7 @@ export async function getPagesForItem(itemId: string): Promise<PageRow[]> {
 
 export async function getProgressMap(): Promise<Map<string, Progress>> {
   if (IS_DEMO) return new Map(demoProgress.map((p) => [p.item_id, p]))
-  const { data } = await admin()!.from('progress').select('*')
+  const { data } = await (await db()).from('progress').select('*')
   return new Map((data ?? []).map((p) => [p.item_id, p]))
 }
 
@@ -169,24 +182,24 @@ export async function saveProgress(itemId: string, page: number, maxPageRead?: n
     const p = demoProgress.find((x) => x.item_id === itemId)
     if (p) {
       p.current_page = page
+      // `max_page_read` is the spoiler guard — it only ever grows.
       p.max_page_read = Math.max(p.max_page_read, maxPageRead ?? page)
-      p.finished = finished ?? p.finished
+      p.finished = (finished ?? false) || p.finished
+      const pages = demoItems.find((i) => i.id === itemId)?.page_count ?? 0
+      p.percent = pages > 0 ? Math.min(100, Math.round((page / pages) * 1000) / 10) : 0
       p.updated_at = new Date().toISOString()
     }
     return p
   }
-  const { data, error } = await admin()!
-    .from('progress')
-    .upsert({
-      user_id: DEMO_USER_ID,
-      item_id: itemId,
-      current_page: page,
-      max_page_read: maxPageRead ?? page,
-      finished: finished ?? false,
-      updated_at: new Date().toISOString(),
-    })
-    .select()
-    .single()
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+  // The RPC keeps `max_page_read` monotonic and recomputes `percent`.
+  const { data, error } = await (await db()).rpc('save_progress', {
+    p_item_id: itemId,
+    p_page: page,
+    p_max_page_read: maxPageRead ?? page,
+    p_finished: finished ?? false,
+  })
   if (error) throw error
   return data
 }
@@ -198,7 +211,7 @@ export async function getNotes(limit?: number): Promise<Note[]> {
     const sorted = [...demoNotes].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
     return limit ? sorted.slice(0, limit) : sorted
   }
-  let q = admin()!.from('notes').select('*').order('updated_at', { ascending: false })
+  let q = (await db()).from('notes').select('*').order('updated_at', { ascending: false })
   if (limit) q = q.limit(limit)
   const { data } = await q
   return data ?? []
@@ -206,8 +219,14 @@ export async function getNotes(limit?: number): Promise<Note[]> {
 
 export async function getNoteById(id: string): Promise<Note | null> {
   if (IS_DEMO) return demoNotes.find((n) => n.id === id) ?? null
-  const { data } = await admin()!.from('notes').select('*').eq('id', id).maybeSingle()
+  const { data } = await (await db()).from('notes').select('*').eq('id', id).maybeSingle()
   return data ?? null
+}
+
+export interface SaveNoteResult {
+  note: Note
+  /** True when somebody else changed the note since we last read it. */
+  conflict: boolean
 }
 
 export async function saveNote(note: {
@@ -216,15 +235,24 @@ export async function saveNote(note: {
   body_md: string
   item_id?: string | null
   page_ref?: number | null
-}) {
+  /** The `updated_at` the editor last saw; used for conflict detection. */
+  base_updated_at?: string | null
+}): Promise<SaveNoteResult> {
   if (IS_DEMO) {
     if (note.id) {
       const existing = demoNotes.find((n) => n.id === note.id)
       if (existing) {
+        if (
+          note.base_updated_at &&
+          existing.updated_at !== note.base_updated_at
+        ) {
+          // Somebody else edited it first — hand back both versions.
+          return { note: { ...existing }, conflict: true }
+        }
         existing.title = note.title
         existing.body_md = note.body_md
         existing.updated_at = new Date().toISOString()
-        return existing
+        return { note: existing, conflict: false }
       }
     }
     const created: Note = {
@@ -239,24 +267,23 @@ export async function saveNote(note: {
       created_at: new Date().toISOString(),
     }
     demoNotes.unshift(created)
-    return created
+    return { note: created, conflict: false }
   }
-  const payload = {
-    user_id: DEMO_USER_ID,
-    title: note.title,
-    body_md: note.body_md,
-    item_id: note.item_id ?? null,
-    page_ref: note.page_ref ?? null,
-    updated_at: new Date().toISOString(),
-  }
-  if (note.id) {
-    const { data, error } = await admin()!.from('notes').update(payload).eq('id', note.id).select().single()
-    if (error) throw error
-    return data
-  }
-  const { data, error } = await admin()!.from('notes').insert(payload).select().single()
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+  // The RPC performs the conflict check and only then writes.
+  const { data, error } = await (await db()).rpc('save_note', {
+    p_id: note.id ?? null,
+    p_title: note.title,
+    p_body_md: note.body_md,
+    p_item_id: note.item_id ?? null,
+    p_page_ref: note.page_ref ?? null,
+    p_base_updated_at: note.base_updated_at ?? null,
+  })
   if (error) throw error
-  return data
+  const result = (data ?? {}) as { note?: Note; conflict?: boolean }
+  if (!result.note) throw new Error('save_note returned no note')
+  return { note: result.note, conflict: !!result.conflict }
 }
 
 export async function getBacklinks(noteId: string) {
@@ -265,19 +292,19 @@ export async function getBacklinks(noteId: string) {
       demoLinks.some((l) => l.from_note === n.id && l.to_note === noteId),
     )
   }
-  const { data } = await admin()!
+  const { data } = await (await db())
     .from('links')
     .select('from_note')
     .eq('to_note', noteId)
   const ids = (data ?? []).map((l) => l.from_note).filter(Boolean) as string[]
   if (!ids.length) return []
-  const { data: notes } = await admin()!.from('notes').select('*').in('id', ids)
+  const { data: notes } = await (await db()).from('notes').select('*').in('id', ids)
   return notes ?? []
 }
 
 export async function getLinks() {
   if (IS_DEMO) return demoLinks
-  const { data } = await admin()!.from('links').select('*')
+  const { data } = await (await db()).from('links').select('*')
   return data ?? []
 }
 
@@ -313,8 +340,85 @@ export async function getGraph(): Promise<{ nodes: GraphNode[]; edges: GraphEdge
 
 export async function getDecks() {
   if (IS_DEMO) return demoDecks
-  const { data } = await admin()!.from('decks').select('*')
+  const { data } = await (await db()).from('decks').select('*')
   return data ?? []
+}
+
+/* ─── Quiz queue ─────────────────────────────────────────────── */
+
+const DEFAULT_NEW_PER_DAY = 10
+const DEFAULT_DAILY_CAP = 50
+
+/**
+ * Build the session queue: due reviews first, then new cards up to the
+ * daily "new per day" allowance, interleaved by series and clipped to
+ * the daily cap.
+ */
+export { interleaveBySeries }
+
+export async function getQuizQueue(limit = 20): Promise<Card[]> {
+  const profile = await getProfile()
+  const settings = profile?.settings?.quiz
+  if (settings?.enabled === false) return []
+  const newPerDay = Math.max(0, settings?.newPerDay ?? DEFAULT_NEW_PER_DAY)
+  const dailyCap = Math.max(1, settings?.dailyCap ?? DEFAULT_DAILY_CAP)
+
+  const startOfDay = new Date()
+  startOfDay.setHours(0, 0, 0, 0)
+
+  if (IS_DEMO) {
+    const nowIso = new Date().toISOString()
+    const active = demoCards.filter((c) => c.status === 'active')
+    const due = active.filter((c) => c.due <= nowIso && c.state !== 0)
+    const fresh = active.filter((c) => c.state === 0)
+    const introducedToday = active.filter(
+      (c) => c.reps <= 1 && c.last_review && c.last_review >= startOfDay.toISOString(),
+    ).length
+    const queue = [...due, ...fresh.slice(0, Math.max(0, newPerDay - introducedToday))]
+    return interleaveBySeries(queue, new Map()).slice(0, Math.min(limit, dailyCap))
+  }
+
+  const sb = await db()
+  const { data: rows } = await sb
+    .from('cards')
+    .select('*')
+    .eq('status', 'active')
+    .order('due')
+
+  const all = (rows ?? []) as Card[]
+  const due = all.filter((c) => c.state !== 0 && c.due <= new Date().toISOString())
+  const fresh = all.filter((c) => c.state === 0)
+
+  // How many new cards have already been introduced today?
+  const introducedToday = all.filter(
+    (c) => c.reps <= 1 && c.last_review && c.last_review >= startOfDay.toISOString(),
+  ).length
+
+  // How many reviews have already happened today (the daily cap)?
+  // With `head: true` the row data is not returned — only the count.
+  const { count: reviewedToday } = await sb
+    .from('reviews')
+    .select('id', { count: 'exact', head: true })
+    .gte('reviewed_at', startOfDay.toISOString())
+  const doneToday = reviewedToday ?? 0
+
+  const room = Math.max(0, dailyCap - doneToday)
+  if (room === 0) return []
+
+  const queue = [...due, ...fresh.slice(0, Math.max(0, newPerDay - introducedToday))]
+
+  // Map each card to its series so the queue can be interleaved.
+  const itemIds = [...new Set(queue.map((c) => c.source_item).filter((v): v is string => !!v))]
+  const seriesOf = new Map<string, string | null>()
+  if (itemIds.length) {
+    const { data: items } = await sb.from('items').select('id, series_id').in('id', itemIds)
+    const byItem = new Map((items ?? []).map((i) => [i.id, i.series_id]))
+    for (const card of queue) {
+      seriesOf.set(card.id, card.source_item ? byItem.get(card.source_item) ?? null : null)
+    }
+  }
+
+  return interleaveBySeries(queue, seriesOf).slice(0, Math.min(limit, room))
 }
 
 export async function getDueCards(limit = 20): Promise<Card[]> {
@@ -325,7 +429,7 @@ export async function getDueCards(limit = 20): Promise<Card[]> {
       .sort((a, b) => (a.due < b.due ? -1 : 1))
       .slice(0, limit)
   }
-  const { data } = await admin()!
+  const { data } = await (await db())
     .from('cards')
     .select('*')
     .eq('status', 'active')
@@ -337,7 +441,7 @@ export async function getDueCards(limit = 20): Promise<Card[]> {
 
 export async function getAllCards(): Promise<Card[]> {
   if (IS_DEMO) return demoCards
-  const { data } = await admin()!.from('cards').select('*')
+  const { data } = await (await db()).from('cards').select('*')
   return data ?? []
 }
 
@@ -347,16 +451,18 @@ export async function saveCardReview(cardId: string, row: Partial<Card>, rating:
     if (c) Object.assign(c, row)
     return c
   }
-  const { data, error } = await admin()!
+  const { data, error } = await (await db())
     .from('cards')
     .update(row)
     .eq('id', cardId)
     .select()
     .single()
   if (error) throw error
-  await admin()!.from('reviews').insert({
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+  await (await db()).from('reviews').insert({
     card_id: cardId,
-    user_id: DEMO_USER_ID,
+    user_id: userId,
     rating,
     ms_taken: msTaken ?? 0,
   })
@@ -367,7 +473,7 @@ export async function saveCardReview(cardId: string, row: Partial<Card>, rating:
 
 export async function getInbox() {
   if (IS_DEMO) return demoInbox
-  const { data } = await admin()!.from('items').select('*').eq('status', 'needs_review').order('created_at')
+  const { data } = await (await db()).from('items').select('*').eq('status', 'needs_review').order('created_at')
   return (data ?? []).map((i: Item) => ({
     id: i.id,
     title: i.title,
@@ -383,7 +489,7 @@ export async function getInbox() {
 
 export async function getActivity() {
   if (IS_DEMO) return demoActivity
-  const { data } = await admin()!.from('daily_activity').select('*').order('date')
+  const { data } = await (await db()).from('daily_activity').select('*').order('date')
   return data ?? []
 }
 
@@ -401,10 +507,30 @@ export async function getStats() {
   const prevWeek = activity.slice(-14, -7)
   const sum = (arr: { pages: number; reviews: number }[]) =>
     arr.reduce((a, d) => a + d.pages + d.reviews, 0)
+
+  // Today's slice of the activity roll-up.
+  const today = new Date().toISOString().slice(0, 10)
+  const reviewsToday = activity.find((d) => d.date === today)?.reviews ?? 0
+
+  // Real note counts — the previous implementation invented the number
+  // as "active days × 6".
+  const now = Date.now()
+  const weekAgo = now - 7 * 86_400_000
+  const prevWeekAgo = now - 14 * 86_400_000
+  const createdAt = (n: { created_at?: string | null }) =>
+    n.created_at ? Date.parse(n.created_at) : 0
+  const notesThisWeek = notes.filter((n) => createdAt(n) >= weekAgo).length
+  const notesPrevWeek = notes.filter(
+    (n) => createdAt(n) >= prevWeekAgo && createdAt(n) < weekAgo,
+  ).length
+
   return {
-    notesThisWeek: week.length * 6,
+    notesThisWeek,
     notesGoal: 60,
-    noteDelta: Math.round(((sum(week) - sum(prevWeek)) / Math.max(1, sum(prevWeek))) * 100),
+    noteDelta: Math.round(
+      ((notesThisWeek - notesPrevWeek) / Math.max(1, notesPrevWeek)) * 100,
+    ),
+    reviewsToday,
     chaptersRead: items.filter((i) => progress.get(i.id)?.finished).length,
     pagesRead,
     reviews,
@@ -440,7 +566,7 @@ export async function searchVault(query: string, limit = 20): Promise<SearchHit[
 
   // Hybrid search: keyword (ts_rank) + semantic (pgvector), merged with RRF.
   // The embedding is best-effort — without one the RPC ranks by keyword.
-  const { data } = await admin()!.rpc('search_vault', {
+  const { data } = await (await db()).rpc('search_vault', {
     query_text: query,
     query_embedding: await embedText(query),
     match_limit: limit,

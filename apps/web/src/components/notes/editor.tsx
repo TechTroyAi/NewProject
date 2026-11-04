@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/primitives'
 import { resolveWikilinks, type ResolvedLink } from '@/lib/wikilinks'
+import { sanitizeHtml } from '@/lib/markdown'
+import { clearDraft, loadDraft, saveDraft } from '@/lib/drafts'
 
 /* ══════════════════════════════════════════════════════════════
    Markdown rendering with wikilinks.
@@ -78,7 +80,9 @@ function renderMarkdown(body: string, resolvedMap: Map<string, ResolvedLink>): s
 
   let html = marked.parse(prepared.join('\n'), { async: false }) as string
   html = html.replace(/zWL(\d+)zWL/g, (_, n: string) => anchors[Number(n)] ?? '')
-  return html
+  // `marked` lets raw HTML through, so sanitise before it reaches
+  // `dangerouslySetInnerHTML`.
+  return sanitizeHtml(html)
 }
 
 /* ══════════════════════════════════════════════════════════════ */
@@ -123,6 +127,10 @@ export function NoteEditor({
   const [suggest, setSuggest] = React.useState<{ index: number; start: number } | null>(null)
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const [cursor, setCursor] = React.useState(0)
+  /** The server's copy, when somebody else edited the note first. */
+  const [conflict, setConflict] = React.useState<EditorNote | null>(null)
+  const [mergeOpen, setMergeOpen] = React.useState(false)
+  const [restored, setRestored] = React.useState(false)
 
   /* ── resolve wikilinks for the preview ─────────────────────── */
   const resolved: ResolvedLink[] = React.useMemo(
@@ -146,27 +154,113 @@ export function NoteEditor({
 
   /* ── autosave ──────────────────────────────────────────────── */
   const dirty = title !== note.title || body !== note.body_md
+  // The version of the note this editor is editing. Sent with every
+  // save so the server can tell us that somebody else got there
+  // first instead of silently overwriting them.
+  const baseVersion = React.useRef(note.updated_at ?? null)
+  const saving = React.useRef(false)
 
-  React.useEffect(() => {
-    if (!dirty) return
-    setStatus('saving')
-    const t = setTimeout(async () => {
+  const persist = React.useCallback(
+    async (opts: { force?: boolean; bodyOverride?: string; titleOverride?: string } = {}) => {
+      const nextBody = opts.bodyOverride ?? body
+      const nextTitle = opts.titleOverride ?? title
+      saving.current = true
+      setStatus('saving')
       try {
-        const res = await fetch(`/api/notes/${note.id}`, {
-          method: 'PATCH',
+        // A note that has never been saved has the placeholder id
+        // "new"; it has to be created with POST, and cannot be
+        // PATCHed (there is no uuid to address it by yet).
+        const isNew = note.id === 'new'
+        const res = await fetch(isNew ? '/api/notes' : `/api/notes/${note.id}`, {
+          method: isNew ? 'POST' : 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ title, body_md: body, item_id: note.item_id, page_ref: note.page_ref }),
+          body: JSON.stringify({
+            title: nextTitle.trim() || 'Untitled',
+            body_md: nextBody,
+            item_id: note.item_id,
+            page_ref: note.page_ref,
+            base_updated_at: opts.force || isNew ? null : baseVersion.current,
+          }),
         })
+        if (res.status === 409) {
+          const data = await res.json().catch(() => null)
+          setConflict(data?.note ?? null)
+          setStatus('idle')
+          return
+        }
         if (!res.ok) throw new Error('save failed')
         const data = await res.json()
-        onSaved?.({ ...note, title, body_md: body, updated_at: data.note?.updated_at })
+        baseVersion.current = data.note?.updated_at ?? baseVersion.current
+        onSaved?.({
+          ...note,
+          id: data.note?.id ?? note.id,
+          title: data.note?.title ?? nextTitle,
+          body_md: nextBody,
+          updated_at: data.note?.updated_at,
+        })
+        setConflict(null)
         setStatus('saved')
+        void clearDraft(note.id)
+        if (isNew && data.note?.id) {
+          // The note now has a real id — move to its permanent URL
+          // and drop the placeholder draft.
+          void clearDraft('new')
+          router.replace(`/app/notes/${data.note.id}`)
+        }
       } catch {
         setStatus('offline')
+      } finally {
+        saving.current = false
       }
+    },
+    [body, title, note, onSaved, router],
+  )
+
+  React.useEffect(() => {
+    if (!dirty || conflict) return
+    const t = setTimeout(() => {
+      void persist()
     }, 800)
     return () => clearTimeout(t)
-  }, [body, title, dirty, note, onSaved])
+  }, [body, title, dirty, conflict, persist])
+
+  /* ── local draft (IndexedDB) ───────────────────────────────── */
+  // Restore the last local working copy when it is newer than the
+  // server's version — the user closed the tab before the save landed.
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const draft = await loadDraft(note.id)
+      if (cancelled || !draft) return
+      const serverAt = note.updated_at ? Date.parse(note.updated_at) : 0
+      if (draft.savedAt <= serverAt) {
+        void clearDraft(note.id)
+        return
+      }
+      if (draft.body_md !== note.body_md || draft.title !== note.title) {
+        setBody(draft.body_md)
+        setTitle(draft.title)
+        setRestored(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [note.id, note.body_md, note.title, note.updated_at])
+
+  // Keep a copy locally every second while there is unsaved work.
+  React.useEffect(() => {
+    if (!dirty) return
+    const t = setInterval(() => {
+      void saveDraft({
+        noteId: note.id,
+        title,
+        body_md: body,
+        savedAt: Date.now(),
+      })
+    }, 1000)
+    return () => clearInterval(t)
+  }, [dirty, note.id, title, body])
 
   /* ── wikilink autocomplete ─────────────────────────────────── */
   const suggestions = React.useMemo(() => {
@@ -279,6 +373,14 @@ export function NoteEditor({
             </>
           )}
           {status === 'idle' && note.updated_at && <>Edited {relativeTime(note.updated_at)}</>}
+          {restored && (
+            <span
+              className="rounded-md bg-accent/12 px-1.5 py-0.5 text-[10.5px] font-medium text-accent"
+              title="An unsaved local draft was restored."
+            >
+              local draft restored
+            </span>
+          )}
         </span>
         <div className="flex items-center gap-0.5 rounded-lg bg-raised/60 p-0.5">
           {(['write', 'split', 'read'] as const).map((v) => (
@@ -362,6 +464,93 @@ export function NoteEditor({
           </div>
         )}
       </div>
+
+      {/* ── conflict dialog ───────────────────────────────────── */}
+      {conflict && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Edit conflict"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4 backdrop-blur-sm"
+        >
+          <div className="w-full max-w-lg animate-scale-in rounded-2xl border border-line/12 bg-surface p-5 shadow-pop">
+            <h2 className="text-[15px] font-semibold tracking-[-.01em]">This note changed elsewhere</h2>
+            <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
+              Somebody edited <span className="text-fg">{conflict.title}</span> while you were working on
+              it. Nothing has been overwritten — choose which version to keep.
+            </p>
+
+            {mergeOpen ? (
+              <div className="mt-4">
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[.08em] text-faint">
+                  Merge
+                </label>
+                <textarea
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  className="md-source h-48 w-full rounded-xl border border-line/10 bg-raised/40 p-3 text-[13px]"
+                />
+                <p className="mt-2 text-[11.5px] text-faint">
+                  The other version reads:
+                  <span className="mt-1 block rounded-lg bg-raised/40 p-2 font-mono text-[11px] text-muted">
+                    {conflict.body_md.slice(0, 400)}
+                    {conflict.body_md.length > 400 ? '…' : ''}
+                  </span>
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <Button
+                  variant="default"
+                  onClick={() => {
+                    setConflict(null)
+                    void persist({ force: true })
+                  }}
+                >
+                  Keep mine
+                </Button>
+                <Button
+                  onClick={() => {
+                    setTitle(conflict.title)
+                    setBody(conflict.body_md)
+                    baseVersion.current = conflict.updated_at ?? null
+                    onSaved?.({ ...note, title: conflict.title, body_md: conflict.body_md, updated_at: conflict.updated_at })
+                    setConflict(null)
+                    setStatus('saved')
+                  }}
+                >
+                  Keep theirs
+                </Button>
+                <Button onClick={() => setMergeOpen(true)}>Merge</Button>
+              </div>
+            )}
+
+            <div className="mt-4 flex justify-end gap-2">
+              {mergeOpen ? (
+                <>
+                  <Button variant="ghost" onClick={() => setMergeOpen(false)}>
+                    Back
+                  </Button>
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      setMergeOpen(false)
+                      setConflict(null)
+                      void persist({ force: true })
+                    }}
+                  >
+                    Save merged version
+                  </Button>
+                </>
+              ) : (
+                <Button variant="ghost" onClick={() => setConflict(null)}>
+                  Decide later
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── backlinks ─────────────────────────────────────────── */}
       {backlinks.length > 0 && (

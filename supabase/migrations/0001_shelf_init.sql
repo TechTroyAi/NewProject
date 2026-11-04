@@ -353,8 +353,11 @@ create policy "own daily_activity" on daily_activity for all
 -- clause, so unread content never reaches the model.
 -- ═══════════════════════════════════════════════════════════════
 
+-- The user is taken from the JWT, never from a parameter: this
+-- function is SECURITY DEFINER, so a parameter would let any caller
+-- read another user's content — including pages they have not read
+-- yet, which would defeat the spoiler guard entirely.
 create or replace function retrieve_guarded(
-  p_user_id uuid,
   p_item_ids uuid[],
   p_query text default '',
   p_query_embedding vector(1536) default null,
@@ -383,8 +386,8 @@ as $$
     from chunks c
     join items i on i.id = c.item_id
     left join progress pr
-      on pr.item_id = c.item_id and pr.user_id = p_user_id
-    where c.user_id = p_user_id
+      on pr.item_id = c.item_id and pr.user_id = auth.uid()
+    where c.user_id = auth.uid()
       and (p_item_ids is null or c.item_id = any(p_item_ids))
       -- ▼▼▼ THE SPOILER GUARD ▼▼▼
       -- A chunk is only visible if the user has read past its last page.
@@ -410,7 +413,6 @@ $$;
 -- The embedding-aware variant. Kept separate so the guard predicate
 -- lives in exactly one place (see above) and is reused here.
 create or replace function retrieve_guarded_semantic(
-  p_user_id uuid,
   p_item_ids uuid[],
   p_query_embedding vector(1536),
   p_limit int default 8
@@ -438,8 +440,8 @@ as $$
   from chunks c
   join items i on i.id = c.item_id
   left join progress pr
-    on pr.item_id = c.item_id and pr.user_id = p_user_id
-  where c.user_id = p_user_id
+    on pr.item_id = c.item_id and pr.user_id = auth.uid()
+  where c.user_id = auth.uid()
     and (p_item_ids is null or c.item_id = any(p_item_ids))
     -- ▼▼▼ THE SPOILER GUARD ▼▼▼
     and c.page_end <= coalesce(pr.max_page_read, 0)
@@ -450,7 +452,6 @@ $$;
 
 -- Notes are the user's own writing — always in scope.
 create or replace function retrieve_notes(
-  p_user_id uuid,
   p_query text default '',
   p_query_embedding vector(1536) default null,
   p_limit int default 6
@@ -469,7 +470,7 @@ as $$
                    plainto_tsquery('english', p_query))
     end as score
   from notes n
-  where n.user_id = p_user_id
+  where n.user_id = auth.uid()
     and (p_query = '' or to_tsvector('english', n.title || ' ' || n.body_md)
          @@ plainto_tsquery('english', p_query)
          or n.title ilike '%' || p_query || '%')
@@ -519,9 +520,14 @@ as $$
     limit 50
   ),
   sem as (
+    -- Without a query embedding the cosine distance is NULL for every
+    -- row, and the CTE would contribute 50 arbitrary items to the
+    -- fused ranking.
     select i.id, i.title, (i.embedding <=> query_embedding)::double precision as r
     from items i
-    where i.user_id = auth.uid() and i.embedding is not null
+    where i.user_id = auth.uid()
+      and i.embedding is not null
+      and query_embedding is not null
     order by i.embedding <=> query_embedding
     limit 50
   ),
@@ -552,10 +558,13 @@ as $$
 $$;
 
 -- Bump a note's updated_at and re-index its links after an edit.
+-- SECURITY INVOKER on purpose: RLS then decides which links this
+-- call may touch. As DEFINER it would have been able to rewrite
+-- another user's link index.
 create or replace function reindex_note_links(p_note_id uuid, p_user_id uuid)
 returns void
 language plpgsql
-security definer
+security invoker
 set search_path = public
 as $$
 declare
@@ -599,11 +608,23 @@ create trigger notes_link_trigger
   for each row execute function note_links_trigger();
 
 -- Roll up daily activity when progress moves.
+--
+-- `OLD` is not assigned for an INSERT, and referencing `old.max_page_read`
+-- there raises "record old is not assigned yet" — which aborted the very
+-- first progress write for every item. Branch on TG_OP instead.
 create or replace function bump_activity()
 returns trigger language plpgsql as $$
+declare
+  v_delta int;
 begin
+  if tg_op = 'INSERT' then
+    v_delta := greatest(0, new.max_page_read);
+  else
+    v_delta := greatest(0, new.max_page_read - coalesce(old.max_page_read, 0));
+  end if;
+
   insert into daily_activity (user_id, date, pages)
-  values (new.user_id, current_date, greatest(0, new.max_page_read - coalesce(old.max_page_read, 0)))
+  values (new.user_id, current_date, v_delta)
   on conflict (user_id, date)
   do update set pages = daily_activity.pages + excluded.pages;
   return new;
@@ -613,3 +634,35 @@ drop trigger if exists progress_activity_trigger on progress;
 create trigger progress_activity_trigger
   after insert or update of max_page_read on progress
   for each row execute function bump_activity();
+
+-- Reviews roll up into the same daily table.
+create or replace function bump_reviews()
+returns trigger language plpgsql as $$
+begin
+  insert into daily_activity (user_id, date, reviews)
+  values (new.user_id, current_date, 1)
+  on conflict (user_id, date)
+  do update set reviews = daily_activity.reviews + 1;
+  return new;
+end $$;
+
+drop trigger if exists reviews_activity_trigger on reviews;
+create trigger reviews_activity_trigger
+  after insert on reviews
+  for each row execute function bump_reviews();
+
+-- …and so do new notes.
+create or replace function bump_notes()
+returns trigger language plpgsql as $$
+begin
+  insert into daily_activity (user_id, date, notes)
+  values (new.user_id, current_date, 1)
+  on conflict (user_id, date)
+  do update set notes = daily_activity.notes + 1;
+  return new;
+end $$;
+
+drop trigger if exists notes_activity_trigger on notes;
+create trigger notes_activity_trigger
+  after insert on notes
+  for each row execute function bump_notes();

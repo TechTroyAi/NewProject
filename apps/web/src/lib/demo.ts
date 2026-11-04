@@ -419,6 +419,7 @@ function card(
     scheduled_days: 3,
     reps: 2,
     lapses: 0,
+    learning_steps: 0,
     state: 2,
     last_review: days(1),
     ...opts,

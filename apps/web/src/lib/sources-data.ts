@@ -1,8 +1,9 @@
 import 'server-only'
 import './env'
 import type { SourceDescriptor } from '@shelf/shared'
-import { IS_DEMO, getSupabaseAdmin } from './db'
+import { IS_DEMO } from './db'
 import { DEMO_USER_ID } from './demo'
+import { getSessionClient, getUserId } from './session'
 import { getSourceCatalog } from './sources/catalog'
 
 /* ══════════════════════════════════════════════════════════════
@@ -69,22 +70,18 @@ const demoSources: ConnectedSource[] = [
 
 export async function getConnectedSources(): Promise<ConnectedSource[]> {
   if (IS_DEMO) return demoSources
-  const { data } = await getSupabaseAdmin()!
-    .from('sources')
-    .select('*')
-    .eq('user_id', DEMO_USER_ID)
-    .order('name')
+  const sb = await getSessionClient()
+  if (!sb) return []
+  // RLS scopes this to the caller's own rows.
+  const { data } = await sb.from('sources').select('*').order('name')
   return (data ?? []) as ConnectedSource[]
 }
 
 export async function isSourceConnected(sourceKey: string): Promise<boolean> {
   if (IS_DEMO) return demoSources.some((s) => s.source_key === sourceKey)
-  const { data } = await getSupabaseAdmin()!
-    .from('sources')
-    .select('id')
-    .eq('user_id', DEMO_USER_ID)
-    .eq('source_key', sourceKey)
-    .maybeSingle()
+  const sb = await getSessionClient()
+  if (!sb) return false
+  const { data } = await sb.from('sources').select('id').eq('source_key', sourceKey).maybeSingle()
   return !!data
 }
 
@@ -112,9 +109,10 @@ export async function connectSource(desc: SourceDescriptor): Promise<ConnectedSo
     return row
   }
 
-  const { data, error } = await getSupabaseAdmin()!
+  const sb = await getSessionClient()
+  if (!sb) throw new Error('Supabase is not configured')
+  const { data, error } = await sb
     .rpc('connect_source', {
-      p_user_id: DEMO_USER_ID,
       p_package_name: desc.packageName,
       p_catalog_id: desc.catalogId,
       p_name: desc.name,
@@ -135,11 +133,9 @@ export async function disconnectSource(sourceKey: string): Promise<void> {
     if (i >= 0) demoSources.splice(i, 1)
     return
   }
-  await getSupabaseAdmin()!
-    .from('sources')
-    .delete()
-    .eq('user_id', DEMO_USER_ID)
-    .eq('source_key', sourceKey)
+  const sb = await getSessionClient()
+  if (!sb) throw new Error('Supabase is not configured')
+  await sb.from('sources').delete().eq('source_key', sourceKey)
 }
 
 /** Resolve a connected source back to a catalog descriptor. */
@@ -185,18 +181,19 @@ export async function importRemoteSeries(opts: {
     return { seriesId, itemIds, title: manga.title }
   }
 
-  const { data: connected } = await getSupabaseAdmin()!
+  const sb = await getSessionClient()
+  if (!sb) throw new Error('Supabase is not configured')
+
+  const { data: connected } = await sb
     .from('sources')
     .select('id')
-    .eq('user_id', DEMO_USER_ID)
     .eq('source_key', source.key)
     .maybeSingle()
 
   if (!connected) throw new Error('Source is not connected')
 
-  const { data, error } = await getSupabaseAdmin()!
+  const { data, error } = await sb
     .rpc('import_remote_series', {
-      p_user_id: DEMO_USER_ID,
       p_source_id: connected.id,
       p_remote_id: manga.id,
       p_title: manga.title,

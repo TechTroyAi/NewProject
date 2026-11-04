@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server'
 import { getSourceCatalog } from '@/lib/sources/catalog'
 import { connectSource, disconnectSource } from '@/lib/sources-data'
+import { requireUser } from '@/lib/api'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 /** Connect (or disconnect) a source. */
 export async function POST(req: Request) {
+  const auth = await requireUser()
+  if ('response' in auth) return auth.response
   const body = await req.json().catch(() => null)
   const key = body?.key
   if (typeof key !== 'string' || !key) {

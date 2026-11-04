@@ -1,10 +1,10 @@
 import { QuizSession } from '@/components/quiz/quiz-session'
-import { getDueCards } from '@/lib/data'
+import { getQuizQueue } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 
 export default async function QuizSessionPage() {
-  const cards = await getDueCards(20)
+  const cards = await getQuizQueue(20)
   return (
     <div className="h-full">
       <QuizSession cards={cards} />

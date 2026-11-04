@@ -48,7 +48,10 @@ export interface ProfileSettings {
     byoKey?: boolean
   }
   quiz?: {
+    /** Maximum number of *new* cards introduced per day. */
     newPerDay?: number
+    /** Maximum number of reviews per day, new and due together. */
+    dailyCap?: number
     enabled?: boolean
   }
 }
@@ -170,6 +173,8 @@ export interface Card {
   scheduled_days: number
   reps: number
   lapses: number
+  /** ts-fsrs v5 learning-ladder position. */
+  learning_steps: number
   state: number
   last_review: string | null
 }
@@ -194,12 +199,30 @@ export interface GraphEdge {
    ══════════════════════════════════════════════════════════════ */
 
 export const UploadInitSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(400),
   size: z.number().int().positive(),
   mime: z.string().default('application/octet-stream'),
-  hash: z.string().min(64).max(64),
+  hash: z.string().regex(/^[a-f0-9]{64}$/i, 'expected a sha-256 hex digest'),
 })
 export type UploadInit = z.infer<typeof UploadInitSchema>
+
+/** Hard ceiling on a single upload. */
+export const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
+/**
+ * Strip a browser-supplied file name down to something safe to put in
+ * a storage path: no directory components, no exotic characters, and
+ * a bounded length.
+ */
+export function safeFileName(name: string): string {
+  const base = name.split(/[\\/]/).pop() ?? 'file'
+  const cleaned = base
+    .replace(/[^\w.\- ]+/g, '_')
+    .replace(/^\.+/, '')
+    .trim()
+    .slice(0, 180)
+  return cleaned || 'file'
+}
 
 export const UploadCompleteSchema = z.object({
   itemId: z.string().uuid(),
@@ -283,6 +306,37 @@ export * from './sources'
 export * from './providers'
 
 /* ─── Wikilink parsing ───────────────────────────────────────── */
+
+/**
+ * Round-robin the cards so that consecutive cards come from different
+ * series. Without this a user with three chapters of one manga queued
+ * would drill the same series for the whole session.
+ */
+export function interleaveBySeries(
+  cards: Card[],
+  seriesOf: Map<string, string | null>,
+): Card[] {
+  const buckets = new Map<string, Card[]>()
+  for (const card of cards) {
+    const key = seriesOf.get(card.id) ?? card.deck_id ?? 'other'
+    const bucket = buckets.get(key)
+    if (bucket) bucket.push(card)
+    else buckets.set(key, [card])
+  }
+  const lists = [...buckets.values()]
+  const out: Card[] = []
+  for (let i = 0; out.length < cards.length; i++) {
+    let progressed = false
+    for (const list of lists) {
+      if (i < list.length) {
+        out.push(list[i])
+        progressed = true
+      }
+    }
+    if (!progressed) break
+  }
+  return out
+}
 
 export const WIKILINK_RE = /\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]/g
 

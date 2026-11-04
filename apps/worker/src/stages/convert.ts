@@ -5,6 +5,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { htmlToText, sanitizeUntrustedHtml } from './sanitize-html.js'
 import type { ConvertedPage, SniffResult } from '../types.js'
 
 const exec = promisify(execFile)
@@ -168,19 +169,16 @@ async function convertEpub(path: string) {
   const texts: string[] = []
   for (const [idx, entry] of html.entries()) {
     const raw = entry.getData().toString('utf8')
-    const text = raw
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
+    const text = htmlToText(raw)
     texts.push(text)
 
-    // Render the chapter as a page image so it reads like every other item.
+    // Render the chapter as a page image so it reads like every other
+    // item. The markup comes from a stranger, so it is scrubbed of
+    // anything that could make LibreOffice reach outside the sandbox.
+    const safe = sanitizeUntrustedHtml(raw)
     const htmlDoc = `<!doctype html><html><head><meta charset="utf-8"><style>
       body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:48px;line-height:1.7;font-size:17px}
-      h1,h2,h3{line-height:1.25;margin:1.4em 0 .6em}p{margin:0 0 1em}</style></head><body>${raw}</body></html>`
+      h1,h2,h3{line-height:1.25;margin:1.4em 0 .6em}p{margin:0 0 1em}</style></head><body>${safe}</body></html>`
     const tmp = join(tmpdir(), `shelf-epub-${idx}.html`)
     await writeFile(tmp, htmlDoc)
     const dir = await mkdtemp(join(tmpdir(), 'shelf-epubout-'))

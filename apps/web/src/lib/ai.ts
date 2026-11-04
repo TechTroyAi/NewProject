@@ -8,7 +8,8 @@ import {
   ShortAnswerGradeSchema,
   type ChatScope,
 } from '@shelf/shared'
-import { getSupabaseAdmin, IS_DEMO } from './db'
+import { IS_DEMO } from './db'
+import { getSessionClient } from './session'
 import {
   describeProvider,
   embedText,
@@ -143,12 +144,14 @@ export async function retrieveWithSpoilerGuard(opts: {
     return demoRetrieve(opts.scope, limit)
   }
 
-  const sb = getSupabaseAdmin()!
+  // The session client carries the caller's JWT, so `auth.uid()`
+  // inside the SECURITY DEFINER functions resolves to *them*.
+  const sb = await getSessionClient()
+  if (!sb) throw new Error('Supabase is not configured')
   const scopeIds = await resolveScopeItemIds(opts.scope)
 
   // ── chunks: keyword + vector, spoiler-filtered ──────────────
   const { data: chunks, error } = await sb.rpc('retrieve_guarded', {
-    p_user_id: DEMO_USER_ID,
     p_item_ids: scopeIds,
     p_query: opts.scope.noteId ?? '',
     p_query_embedding: opts.queryEmbedding ?? null,
@@ -158,7 +161,6 @@ export async function retrieveWithSpoilerGuard(opts: {
 
   // ── notes: the user's own writing, always in scope ──────────
   const { data: notes } = await sb.rpc('retrieve_notes', {
-    p_user_id: DEMO_USER_ID,
     p_query: opts.scope.noteId ?? '',
     p_query_embedding: opts.queryEmbedding ?? null,
     p_limit: 6,
@@ -173,15 +175,17 @@ export async function retrieveWithSpoilerGuard(opts: {
 }
 
 async function resolveScopeItemIds(scope: ChatScope): Promise<string[]> {
+  const sb = await getSessionClient()
+  if (!sb) return []
   if (scope.mode === 'item' && scope.itemId) return [scope.itemId]
   if (scope.mode === 'series' && scope.seriesId) {
-    const { data } = await getSupabaseAdmin()!
+    const { data } = await sb
       .from('items')
       .select('id')
       .eq('series_id', scope.seriesId)
     return (data ?? []).map((i) => i.id)
   }
-  const { data } = await getSupabaseAdmin()!.from('items').select('id')
+  const { data } = await sb.from('items').select('id')
   return (data ?? []).map((i) => i.id)
 }
 
@@ -194,7 +198,9 @@ async function describeGuard(scope: ChatScope): Promise<string> {
     }
     return 'Your whole vault. Note that content beyond the pages you have read is excluded.'
   }
-  const { data } = await getSupabaseAdmin()!.from('progress').select('*').eq('user_id', DEMO_USER_ID)
+  const sb = await getSessionClient()
+  if (!sb) return 'Progress across 0 items.'
+  const { data } = await sb.from('progress').select('*')
   return `Progress across ${data?.length ?? 0} items.`
 }
 
@@ -488,7 +494,10 @@ export async function generateQuizCards(opts: {
 export async function gradeShortAnswer(question: string, reference: string, answer: string) {
   if (!HAS_KEY) {
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
-    const correct = norm(answer).includes(norm(reference).split(' ')[0] ?? 'x')
+    // An empty reference must not match everything: `''.includes('')`
+    // is true, which would mark every blank answer as correct.
+    const key = norm(reference).split(' ').filter(Boolean)[0] ?? ''
+    const correct = key ? norm(answer).includes(key) : false
     return {
       correct,
       feedback: correct
@@ -514,7 +523,10 @@ Return correct (boolean) and one sentence of feedback. Be fair: accept paraphras
   } catch (err) {
     console.error('[shelf] grading provider failed:', err instanceof Error ? err.message : err)
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
-    const correct = norm(answer).includes(norm(reference).split(' ')[0] ?? 'x')
+    // An empty reference must not match everything: `''.includes('')`
+    // is true, which would mark every blank answer as correct.
+    const key = norm(reference).split(' ').filter(Boolean)[0] ?? ''
+    const correct = key ? norm(answer).includes(key) : false
     object = {
       correct,
       feedback: correct

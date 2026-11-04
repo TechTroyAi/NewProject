@@ -11,7 +11,9 @@ export function rowToFsrsCard(row: Card): FsrsCard {
     difficulty: row.difficulty,
     elapsed_days: row.elapsed_days,
     scheduled_days: row.scheduled_days,
-    learning_steps: 0,
+    // ts-fsrs v5 tracks the position in the learning ladder; resetting
+    // it to 0 on every load would restart every learning-phase card.
+    learning_steps: row.learning_steps ?? 0,
     reps: row.reps,
     lapses: row.lapses,
     state: row.state as FsrsCard['state'],
@@ -28,6 +30,7 @@ export function fsrsToRow(card: FsrsCard) {
     scheduled_days: card.scheduled_days,
     reps: card.reps,
     lapses: card.lapses,
+    learning_steps: card.learning_steps,
     state: card.state as number,
     last_review: card.last_review ? card.last_review.toISOString() : null,
   }

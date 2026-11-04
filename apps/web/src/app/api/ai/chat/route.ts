@@ -1,10 +1,13 @@
 import { ChatScopeSchema } from '@shelf/shared'
 import { chatStream } from '@/lib/ai'
+import { requireUser } from '@/lib/api'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function POST(req: Request) {
+  const auth = await requireUser()
+  if ('response' in auth) return auth.response
   let body: { question?: string; scope?: unknown }
   try {
     body = await req.json()

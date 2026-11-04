@@ -33,7 +33,13 @@ export default async function QuizPage() {
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile label="Due now" value={due.length} unit="cards" icon={<Target />} tone="rgb(var(--accent))" />
         <StatTile label="Total cards" value={cards.length} unit="cards" icon={<Layers />} tone="rgb(var(--note))" />
-        <StatTile label="Reviews today" value={stats.reviews} unit="reviews" icon={<Sparkles />} tone="rgb(var(--good))" />
+        <StatTile
+          label="Reviews today"
+          value={stats.reviewsToday}
+          unit="reviews"
+          icon={<Sparkles />}
+          tone="rgb(var(--good))"
+        />
         <StatTile label="Decks" value={decks.length} unit="decks" icon={<Layers />} tone="rgb(var(--series))" />
       </div>
 

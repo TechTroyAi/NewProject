@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { generateQuizCards } from '@/lib/ai'
 import { getNoteById, getPagesForItem } from '@/lib/data'
+import { requireUser } from '@/lib/api'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -10,6 +11,8 @@ export const runtime = 'nodejs'
  * page so a card can only surface after the reader has passed it.
  */
 export async function POST(req: Request) {
+  const auth = await requireUser()
+  if ('response' in auth) return auth.response
   const body = await req.json().catch(() => null)
   const noteId = body?.noteId
   if (!noteId) return NextResponse.json({ error: 'noteId required' }, { status: 400 })

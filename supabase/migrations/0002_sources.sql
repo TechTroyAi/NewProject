@@ -53,8 +53,10 @@ create policy "own sources" on sources for all
 -- item policies key off user_id only).
 
 -- ─── Helper: connect a source, or return the existing connection ───
+-- The user comes from the JWT, never from a parameter: these
+-- functions are SECURITY DEFINER, so a parameter would let any
+-- caller write into another user's account.
 create or replace function connect_source(
-  p_user_id uuid,
   p_package_name text,
   p_catalog_id text,
   p_name text,
@@ -72,7 +74,12 @@ as $$
 declare
   v_key text;
   v_row sources;
+  v_user_id uuid := auth.uid();
 begin
+  if v_user_id is null then
+    raise exception 'not authenticated';
+  end if;
+
   v_key := p_package_name || '#' || p_catalog_id;
 
   insert into sources (
@@ -80,7 +87,7 @@ begin
     name, language, home_url, icon_path, adapter, nsfw
   )
   values (
-    p_user_id, coalesce(p_adapter, 'catalog'), v_key, p_package_name, p_catalog_id,
+    v_user_id, coalesce(p_adapter, 'catalog'), v_key, p_package_name, p_catalog_id,
     p_name, p_language, p_home_url, p_icon_path, p_adapter, p_nsfw
   )
   on conflict (user_id, source_key) do update
@@ -98,7 +105,6 @@ $$;
 
 -- ─── Helper: import a remote manga as a series + items ────────────
 create or replace function import_remote_series(
-  p_user_id uuid,
   p_source_id uuid,
   p_remote_id text,
   p_title text,
@@ -118,10 +124,15 @@ declare
   v_item_ids jsonb := '[]'::jsonb;
   v_chapter jsonb;
   v_item_id uuid;
+  v_user_id uuid := auth.uid();
 begin
+  if v_user_id is null then
+    raise exception 'not authenticated';
+  end if;
+
   -- The series itself.
   insert into series (user_id, title, kind)
-  values (p_user_id, p_title, 'manga')
+  values (v_user_id, p_title, 'manga')
   returning id into v_series_id;
 
   -- One item per chapter, so progress tracking works per chapter.
@@ -133,7 +144,7 @@ begin
       source_id, remote_id, remote_chapter_id, remote_cover_url
     )
     values (
-      p_user_id, v_series_id, 'cbz',
+      v_user_id, v_series_id, 'cbz',
       p_title || (case when (v_chapter->>'number') is not null
                         then ' c' || (v_chapter->>'number') else '' end),
       nullif(v_chapter->>'number', '')::numeric,
@@ -151,7 +162,7 @@ begin
 
   -- Enqueue the fetch stage for each imported chapter.
   insert into jobs (user_id, item_id, stage, status)
-  select p_user_id, x::uuid, 'remote', 'queued'
+  select v_user_id, x::uuid, 'remote', 'queued'
   from jsonb_array_elements_text(v_item_ids) as x;
 
   return jsonb_build_object('seriesId', v_series_id, 'itemIds', v_item_ids);

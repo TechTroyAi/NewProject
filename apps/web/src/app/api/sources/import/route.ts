@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { AddRemoteSchema } from '@shelf/shared'
 import { resolveConnected, importRemoteSeries } from '@/lib/sources-data'
+import { requireUser } from '@/lib/api'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -12,6 +13,8 @@ export const runtime = 'nodejs'
  * reader, progress tracking, notes and quiz all work unchanged.
  */
 export async function POST(req: Request) {
+  const auth = await requireUser()
+  if ('response' in auth) return auth.response
   const parsed = AddRemoteSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
     return NextResponse.json({ error: 'invalid payload', detail: parsed.error.flatten() }, { status: 400 })

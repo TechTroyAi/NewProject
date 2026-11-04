@@ -363,7 +363,11 @@ async function runRemote(job: Job) {
 
 async function downloadToTemp(path: string) {
   const dir = await mkdtemp(join(tmpdir(), 'shelf-worker-'))
-  const local = join(dir, path.split('/').pop() ?? 'file')
+  // The file name comes from a storage path, so never let it escape
+  // the temp directory.
+  const raw = path.split('/').pop() ?? 'file'
+  const safe = raw.replace(/[^\w.\-]+/g, '_').replace(/^\.+/, '').slice(0, 120) || 'file'
+  const local = join(dir, safe)
   const { data, error } = await sb.storage.from(STORAGE_BUCKET).download(path)
   if (error) throw error
   await writeFile(local, Buffer.from(await data.arrayBuffer()))
@@ -371,6 +375,13 @@ async function downloadToTemp(path: string) {
 }
 
 /* ─── runner ─────────────────────────────────────────────────── */
+
+/**
+ * Stages whose failure makes the item unreadable. Everything else
+ * (OCR, chunking, embeddings, the AI pass, card generation) only
+ * degrades the item, it does not break it.
+ */
+const READABILITY_STAGES = new Set<Stage>(['sniff', 'convert', 'remote'])
 
 const RUNNERS: Record<Stage, (job: Job) => Promise<void>> = {
   sniff: runSniff,
@@ -406,10 +417,20 @@ async function tick() {
     } catch (err) {
       console.error(`✘ ${job.stage}:`, err)
       await finishJob(job, { status: 'failed', error: String(err) })
-      await sb
-        .from('items')
-        .update({ status: 'failed', status_detail: String(err).slice(0, 500) })
-        .eq('id', job.item_id)
+      // Only the stages that produce the *pages* decide whether an
+      // item is readable. A failed OCR or AI pass must not take a
+      // perfectly readable book out of the library.
+      if (READABILITY_STAGES.has(job.stage)) {
+        await sb
+          .from('items')
+          .update({ status: 'failed', status_detail: String(err).slice(0, 500) })
+          .eq('id', job.item_id)
+      } else {
+        await sb
+          .from('items')
+          .update({ status_detail: `${job.stage} failed: ${String(err).slice(0, 300)}` })
+          .eq('id', job.item_id)
+      }
     }
   } finally {
     running = false

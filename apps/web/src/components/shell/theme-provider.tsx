@@ -59,8 +59,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 /** Subtle floating accent picker — pure delight, zero chrome. */
 function ThemeSwatchRail() {
   const ctx = React.useContext(ThemeContext)
-  if (!ctx) return null
+  // The hook must come before the early return, or React throws
+  // "Rendered fewer hooks than expected" when the context changes.
   const [open, setOpen] = React.useState(false)
+  if (!ctx) return null
   return (
     <div className="fixed bottom-4 left-4 z-[80]">
       {open && (

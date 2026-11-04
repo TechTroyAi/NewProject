@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { UploadInitSchema } from '@shelf/shared'
+import { MAX_UPLOAD_BYTES, UploadInitSchema, safeFileName } from '@shelf/shared'
 import { IS_DEMO } from '@/lib/db'
-import { getSupabaseAdmin } from '@/lib/db'
+import { getSessionClient, getUserId } from '@/lib/session'
 import { randomUUID } from 'node:crypto'
 
 export const dynamic = 'force-dynamic'
@@ -23,14 +23,24 @@ export async function POST(req: Request) {
   if (IS_DEMO) {
     return NextResponse.json({
       itemId: randomUUID(),
-      path: `originals/${hash.slice(0, 16)}/${name}`,
+      path: `originals/demo/${hash.slice(0, 16)}/${safeFileName(name)}`,
       uploadUrl: null,
       duplicate: false,
       demo: true,
     })
   }
 
-  const sb = getSupabaseAdmin()!
+  if (size > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: 'file is too large' }, { status: 413 })
+  }
+
+  const sb = await getSessionClient()
+  if (!sb) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 })
+  const userId = await getUserId()
+  if (!userId) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 })
+
+  // Duplicate check. RLS scopes this to the caller's own items, so a
+  // hash belonging to somebody else is invisible here.
   const { data: existing } = await sb
     .from('items')
     .select('id')
@@ -42,7 +52,9 @@ export async function POST(req: Request) {
   }
 
   const itemId = randomUUID()
-  const path = `originals/${itemId}/${name}`
+  // The path is namespaced by user, so one user can never address
+  // another user's originals.
+  const path = `originals/${userId}/${itemId}/${safeFileName(name)}`
 
   // In production this is an S3/R2 presigned PUT. The storage adapter is
   // intentionally thin so it can be swapped for Supabase Storage.

@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises'
+import { open, stat } from 'node:fs/promises'
+import AdmZip from 'adm-zip'
 import type { SniffResult } from '../types.js'
 
 /**
@@ -6,9 +7,39 @@ import type { SniffResult } from '../types.js'
  * extension. Also rejects executables and archives that look like
  * a zip bomb.
  */
+
+/** Nothing bigger than this is worth converting. */
+export const MAX_FILE_BYTES = 512 * 1024 * 1024
+
+/** Read the first `length` bytes of a file without loading all of it. */
+export async function readHead(path: string, length = 512): Promise<Buffer> {
+  const handle = await open(path, 'r')
+  try {
+    const buffer = Buffer.alloc(length)
+    const { bytesRead } = await handle.read(buffer, 0, length, 0)
+    return buffer.subarray(0, bytesRead)
+  } finally {
+    await handle.close()
+  }
+}
+
 export async function sniff(path: string, originalName: string): Promise<SniffResult> {
-  const fd = await readFile(path)
-  const head = fd.subarray(0, 512)
+  const info = await stat(path)
+  if (info.size > MAX_FILE_BYTES) {
+    return {
+      type: 'unknown',
+      mime: 'application/octet-stream',
+      safe: false,
+      reason: `File is larger than the ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB limit`,
+    }
+  }
+  if (info.size === 0) {
+    return { type: 'unknown', mime: 'application/octet-stream', safe: false, reason: 'File is empty' }
+  }
+
+  // Only the head is needed — reading a 500 MB upload into memory just
+  // to look at 512 bytes would take the worker down.
+  const head = await readHead(path, 512)
 
   const startsWith = (sig: number[]) => sig.every((b, i) => head[i] === b)
 
@@ -34,16 +65,41 @@ export async function sniff(path: string, originalName: string): Promise<SniffRe
     return { type: 'image', mime: 'image/webp', safe: true }
   }
 
-  // ZIP family — then look inside to tell CBZ / EPUB / OOXML apart.
+  // ZIP family. The *contents* decide what it is — the extension is
+  // only a hint, and a `.cbz` that is really an EPUB must be handled
+  // as an EPUB (and vice versa).
   if (startsWith([0x50, 0x4b, 0x03, 0x04]) || startsWith([0x50, 0x4b, 0x05, 0x06])) {
+    const kind = await inspectZipKind(path)
+    if (kind === 'epub') return { type: 'epub', mime: 'application/epub+zip', safe: true }
+    if (kind === 'pptx') {
+      return {
+        type: 'pptx',
+        mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        safe: true,
+      }
+    }
+    if (kind === 'docx') {
+      return {
+        type: 'docx',
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        safe: true,
+      }
+    }
+    // Unknown zip layout: fall back to the extension, then treat it as
+    // a comic archive.
     const name = originalName.toLowerCase()
     if (name.endsWith('.epub')) return { type: 'epub', mime: 'application/epub+zip', safe: true }
-    if (name.endsWith('.pptx') || name.endsWith('.docx')) {
+    if (name.endsWith('.pptx')) {
       return {
-        type: name.endsWith('.pptx') ? 'pptx' : 'docx',
-        mime: name.endsWith('.pptx')
-          ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        type: 'pptx',
+        mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        safe: true,
+      }
+    }
+    if (name.endsWith('.docx')) {
+      return {
+        type: 'docx',
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         safe: true,
       }
     }
@@ -55,4 +111,25 @@ export async function sniff(path: string, originalName: string): Promise<SniffRe
   }
 
   return { type: 'unknown', mime: 'application/octet-stream', safe: false, reason: 'Unrecognised file type' }
+}
+
+/**
+ * Look inside a zip and work out what it really is, from the entry
+ * names in its central directory:
+ *
+ *   mimetype                → EPUB
+ *   ppt/presentation.xml    → PowerPoint
+ *   word/document.xml       → Word
+ */
+export function inspectZipKind(path: string): 'epub' | 'pptx' | 'docx' | 'unknown' {
+  try {
+    const zip = new AdmZip(path)
+    const names = zip.getEntries().map((e) => e.entryName.toLowerCase())
+    if (names.includes('mimetype')) return 'epub'
+    if (names.some((n) => n.startsWith('ppt/') && n.endsWith('.xml'))) return 'pptx'
+    if (names.some((n) => n.startsWith('word/') && n.endsWith('.xml'))) return 'docx'
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
 }

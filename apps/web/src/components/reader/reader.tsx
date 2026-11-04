@@ -41,7 +41,15 @@ export interface ReaderItem {
 
 type Mode = 'strip' | 'paged'
 
-export function Reader({ item, initialPage }: { item: ReaderItem; initialPage: number }) {
+export function Reader({
+  item,
+  initialPage,
+  savedMaxPageRead = 0,
+}: {
+  item: ReaderItem
+  initialPage: number
+  savedMaxPageRead?: number
+}) {
   const router = useRouter()
   const params = useSearchParams()
   const [mode, setMode] = React.useState<Mode>('strip')
@@ -68,7 +76,11 @@ export function Reader({ item, initialPage }: { item: ReaderItem; initialPage: n
 
   /* ── progress persistence (debounced) ──────────────────────── */
   const saveTimer = React.useRef<ReturnType<typeof setTimeout>>()
-  const maxRead = React.useRef(current)
+  // `max_page_read` is the spoiler guard and must never go backwards.
+  // Seed it from the value the server already has, not from the page
+  // we happen to be on, otherwise re-opening an item would quietly
+  // lower the guard.
+  const maxRead = React.useRef(Math.max(0, savedMaxPageRead))
 
   const persist = React.useCallback(
     (nextPage: number, finished = false) => {
