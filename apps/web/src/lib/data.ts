@@ -1,5 +1,7 @@
 import 'server-only'
+import './env'
 import type { Card, GraphEdge, GraphNode, Item, Note, Progress, Series } from '@shelf/shared'
+import { embedText } from './ai-provider'
 import { getSupabaseAdmin, IS_DEMO } from './db'
 import {
   DEMO_USER_ID,
@@ -437,9 +439,10 @@ export async function searchVault(query: string, limit = 20): Promise<SearchHit[
   }
 
   // Hybrid search: keyword (ts_rank) + semantic (pgvector), merged with RRF.
+  // The embedding is best-effort — without one the RPC ranks by keyword.
   const { data } = await admin()!.rpc('search_vault', {
     query_text: query,
-    query_embedding: null,
+    query_embedding: await embedText(query),
     match_limit: limit,
   })
   return (data ?? []) as SearchHit[]

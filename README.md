@@ -74,6 +74,12 @@ Shelf runs in **demo mode** until `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SU
 cp .env.example .env.local
 ```
 
+The `.env` lives at the **repository root** — the web app, the worker
+and the CLI all read the same file (Next.js only looks inside
+`apps/web`, so the root file is loaded explicitly). Anything already
+set in the real environment wins over the file, so a deployed
+environment always takes precedence.
+
 ### 1. Database
 
 ```bash
@@ -174,6 +180,40 @@ keiyoushi/extensions  →  index.json  →  1,454 extensions  →  2,379 languag
 Database: `supabase/migrations/0002_sources.sql` adds the `sources` table, the
 `items.origin / source_id / remote_id / remote_chapter_id` columns, and the
 `connect_source` / `import_remote_series` RPCs.
+
+## AI providers — bring your own key
+
+Shelf does not want to pay your AI bill, and it does not want your
+content leaving the machine unless you say so. The first provider
+with a key wins:
+
+```
+Gemini  ->  OpenAI  ->  Anthropic  ->  Ollama
+```
+
+| Variable | Notes |
+|---|---|
+| `GEMINI_API_KEY` | Google AI Studio. New *Auth keys* start with `AQ.` (the legacy format was `AIza…`); they are sent in the `x-goog-api-key` header, which Shelf does for you. |
+| `GEMINI_MODEL` | Defaults to `gemini-3.8-flash`. If Google retires the id, Shelf falls through to the next candidate automatically. |
+| `OPENAI_API_KEY` | `gpt-4o-mini` by default. |
+| `ANTHROPIC_API_KEY` | `claude-3-5-haiku-latest` by default. Anthropic serves no embeddings, so the embedding provider stays separate. |
+| `OLLAMA_BASE_URL` | Point at a local Ollama server for a fully offline setup. |
+
+With no key at all, Shelf falls back to its deterministic offline
+model — the chat still cites real sources, the quizzes still get
+generated, and the spoiler guard still holds. That is what makes the
+demo mode fully explorable.
+
+**Embeddings.** Chunks are embedded into 1536 dimensions to match the
+`pgvector` column, whichever provider is live: Gemini's
+`gemini-embedding-001` (asked for exactly 1536) or OpenAI's
+`text-embedding-3-small`. The chat question and the search query are
+embedded with the same model, so retrieval is genuinely hybrid —
+keyword rank fused with vector distance — and not keyword-only.
+
+**Keys never reach the browser.** The provider is resolved on the
+server, and the settings panel only ever shows the provider *name*,
+never the key.
 
 ## The three ideas worth stealing
 

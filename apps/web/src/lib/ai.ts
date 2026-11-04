@@ -1,6 +1,7 @@
 import 'server-only'
+import type { z } from 'zod'
 import { generateObject, generateText, streamText } from 'ai'
-import { openai } from '@ai-sdk/openai'
+import type { LanguageModel } from 'ai'
 import {
   IngestionSchema,
   QuizGenerationSchema,
@@ -8,6 +9,14 @@ import {
   type ChatScope,
 } from '@shelf/shared'
 import { getSupabaseAdmin, IS_DEMO } from './db'
+import {
+  describeProvider,
+  embedText,
+  isModelUnavailable,
+  providerConfigured,
+  resolveProvider,
+  withModelFallback,
+} from './ai-provider'
 import { DEMO_USER_ID, demoCards, demoItems, demoNotes, demoProgress, mockPageImage } from './demo'
 
 /* ══════════════════════════════════════════════════════════════
@@ -36,14 +45,82 @@ export interface RetrievedNote {
   score: number
 }
 
-const HAS_KEY = !!(process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY)
+const HAS_KEY = providerConfigured()
 
 export function aiConfigured() {
   return HAS_KEY
 }
 
-function model() {
-  return openai(process.env.OPENAI_API_KEY || 'sk-demo-placeholder')
+/** Which provider is live right now (for the settings panel). */
+export function activeProvider() {
+  return describeProvider()
+}
+
+/**
+ * The active language model.
+ *
+ * Provider choice is resolved once per request from the environment:
+ * Gemini → OpenAI → Anthropic → Ollama. With no key at all, Shelf
+ * uses its deterministic offline model instead of calling out.
+ */
+function model(): LanguageModel {
+  const provider = resolveProvider()
+  if (!provider) {
+    throw new Error('No AI provider configured')
+  }
+  return provider.model
+}
+
+/** Every candidate model id, so a retired id can fall through to the next. */
+function modelIds(): string[] {
+  return resolveProvider()?.modelIds ?? []
+}
+
+/**
+ * Run a model call, falling through to the next candidate model id
+ * if the provider reports that this one no longer exists.
+ */
+async function withFallback<T>(fn: (model: LanguageModel) => Promise<T>): Promise<T> {
+  const provider = resolveProvider()
+  if (!provider) throw new Error('No AI provider configured')
+  if (provider.modelIds.length <= 1) return fn(provider.model)
+  return withModelFallback(provider.modelIds, (id) => fn(provider.modelFor(id)))
+}
+
+/**
+ * Stream text, falling through to the next candidate model id if the
+ * provider reports that this one no longer exists.
+ *
+ * The fallback only applies before the first token — once text has
+ * been emitted, retrying would duplicate it.
+ */
+async function* streamWithFallback(opts: {
+  system: string
+  prompt: string
+  temperature?: number
+}): AsyncGenerator<string> {
+  const provider = resolveProvider()
+  if (!provider) throw new Error('No AI provider configured')
+
+  for (const id of provider.modelIds) {
+    let started = false
+    try {
+      const result = streamText({ model: provider.modelFor(id), ...opts })
+      // `textStream` filters out error parts, so a provider failure
+      // would look like an empty answer. `fullStream` keeps them.
+      for await (const part of result.fullStream) {
+        if (part.type === 'error') throw part.error
+        if (part.type === 'text-delta') {
+          started = true
+          yield part.textDelta
+        }
+      }
+      return
+    } catch (err) {
+      if (started || !isModelUnavailable(err)) throw err
+      console.warn(`[shelf] model "${id}" unavailable, trying the next one`)
+    }
+  }
 }
 
 /* ─── The spoiler guard ──────────────────────────────────────── */
@@ -230,7 +307,10 @@ export async function* chatStream(opts: {
   scope: ChatScope
   mode?: 'fast' | 'reason'
 }): AsyncGenerator<{ type: 'sources'; sources: ChatSource[] } | { type: 'text'; text: string } | { type: 'done' }> {
-  const retrieved = await retrieveWithSpoilerGuard({ scope: opts.scope })
+  // Embed the question so retrieval is semantic as well as keyword.
+  // A failed embedding just means the SQL falls back to keyword rank.
+  const queryEmbedding = await embedText(opts.question)
+  const retrieved = await retrieveWithSpoilerGuard({ scope: opts.scope, queryEmbedding })
   const sources = buildSources(retrieved.chunks, retrieved.notes)
 
   yield { type: 'sources', sources }
@@ -244,14 +324,21 @@ export async function* chatStream(opts: {
     return
   }
 
-  const result = streamText({
-    model: model(),
-    system: SYSTEM_PROMPT,
-    prompt: buildPrompt(opts.question, retrieved.chunks, retrieved.notes),
-    temperature: 0.3,
-  })
-  for await (const part of result.textStream) {
-    yield { type: 'text', text: part }
+  try {
+    for await (const part of streamWithFallback({
+      system: SYSTEM_PROMPT,
+      prompt: buildPrompt(opts.question, retrieved.chunks, retrieved.notes),
+      temperature: 0.3,
+    })) {
+      yield { type: 'text', text: part }
+    }
+  } catch (err) {
+    // A provider that is down, rate-limited or out of credit should
+    // not break the assistant — fall back to the offline answer.
+    console.error('[shelf] chat provider failed:', err instanceof Error ? err.message : err)
+    for (const chunk of mockAnswer(opts.question, retrieved, sources)) {
+      yield { type: 'text', text: chunk }
+    }
   }
   yield { type: 'done' }
 }
@@ -300,8 +387,11 @@ export async function ingestStructured(sample: string, hints: { title?: string }
       contentKind: 'other' as const,
     }
   }
-  const { object } = await generateObject({
-    model: model(),
+  let object: z.infer<typeof IngestionSchema>
+  try {
+    ;({ object } = await withFallback((m) =>
+    generateObject({
+    model: m,
     schema: IngestionSchema,
     prompt: `Analyse this sample of a document. It may be a manga chapter, a lecture PDF, a slide deck, or a book chapter.
 
@@ -309,7 +399,22 @@ Return a title, the series it belongs to (if any), volume/chapter numbers, a 3-s
 
 SAMPLE:
 ${sample.slice(0, 6000)}`,
-  })
+    }),
+  ))
+  } catch (err) {
+    console.error('[shelf] ingestion provider failed:', err instanceof Error ? err.message : err)
+    object = {
+      title: hints.title ?? 'Untitled item',
+      series: null,
+      volume: null,
+      chapter: null,
+      summary: 'Summary unavailable — the AI provider could not be reached.',
+      tags: [],
+      keyTerms: [],
+      language: 'en',
+      contentKind: 'other',
+    }
+  }
   return object
 }
 
@@ -345,8 +450,11 @@ export async function generateQuizCards(opts: {
       })),
     }
   }
-  const { object } = await generateObject({
-    model: model(),
+  let object: { cards: z.infer<typeof QuizGenerationSchema>['cards'] }
+  try {
+    ;({ object } = await withFallback((m) =>
+    generateObject({
+    model: m,
     schema: QuizGenerationSchema,
     prompt: QUIZ_PROMPT
       .replace('{n}', String(opts.n))
@@ -357,7 +465,21 @@ export async function generateQuizCards(opts: {
           .join('\n\n')
           .slice(0, 8000)}`,
       ),
-  })
+    }),
+  ))
+  } catch (err) {
+    console.error('[shelf] quiz provider failed:', err instanceof Error ? err.message : err)
+    object = {
+      cards: demoCards.slice(0, opts.n).map((c) => ({
+        type: c.type,
+        question: c.question,
+        answer: c.answer,
+        options: c.options,
+        explanation: c.explanation,
+        sourcePage: c.source_page,
+      })),
+    }
+  }
   return object
 }
 
@@ -374,8 +496,11 @@ export async function gradeShortAnswer(question: string, reference: string, answ
         : `The note points at "${reference.slice(0, 90)}". Your answer misses that specific detail.`,
     }
   }
-  const { object } = await generateObject({
-    model: model(),
+  let object: z.infer<typeof ShortAnswerGradeSchema>
+  try {
+    ;({ object } = await withFallback((m) =>
+    generateObject({
+    model: m,
     schema: ShortAnswerGradeSchema,
     prompt: `Grade the user's answer against the reference answer.
 
@@ -384,7 +509,19 @@ REFERENCE: ${reference}
 USER ANSWER: ${answer}
 
 Return correct (boolean) and one sentence of feedback. Be fair: accept paraphrases and partial credit if the core claim is right.`,
-  })
+    }),
+  ))
+  } catch (err) {
+    console.error('[shelf] grading provider failed:', err instanceof Error ? err.message : err)
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
+    const correct = norm(answer).includes(norm(reference).split(' ')[0] ?? 'x')
+    object = {
+      correct,
+      feedback: correct
+        ? 'Close enough — the key term is there.'
+        : `The note points at "${reference.slice(0, 90)}". Your answer misses that specific detail.`,
+    }
+  }
   return object
 }
 

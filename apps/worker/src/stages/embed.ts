@@ -1,13 +1,15 @@
-import OpenAI from 'openai'
+import { EMBEDDING_DIMENSIONS } from '@shelf/shared'
+import { embedTexts } from '../ai-provider.js'
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
-export const EMBEDDING_MODEL = 'text-embedding-3-small'
-export const EMBEDDING_DIMENSIONS = 1536
+export const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? 'text-embedding-3-small'
+export const EMBEDDING_DIMENSIONS_EXPORT = EMBEDDING_DIMENSIONS
 
 /**
  * Embed chunks. Batched, with a retry on rate limit.
- * The dimension is pinned to 1536 to match the pgvector column.
+ *
+ * The dimension is pinned to 1536 to match the pgvector column, for
+ * every provider — Gemini's `gemini-embedding-001` is asked for
+ * exactly that width.
  */
 export async function embedChunks(chunks: { content: string }[]) {
   if (!chunks.length) return []
@@ -18,14 +20,10 @@ export async function embedChunks(chunks: { content: string }[]) {
     let attempt = 0
     for (;;) {
       try {
-        const res = await client.embeddings.create({
-          model: EMBEDDING_MODEL,
-          input: batch.map((c) => c.content),
-          dimensions: EMBEDDING_DIMENSIONS,
-        })
-        out.push(...res.data.map((d) => d.embedding))
+        const vectors = await embedTexts(batch.map((c) => c.content), { taskType: 'RETRIEVAL_DOCUMENT' })
+        out.push(...vectors)
         break
-      } catch (err: any) {
+      } catch (err) {
         attempt++
         if (attempt > 4) throw err
         const wait = Math.min(20_000, 2 ** attempt * 1500)

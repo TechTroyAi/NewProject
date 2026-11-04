@@ -1,4 +1,5 @@
 import 'server-only'
+import './env'
 import type { SourceDescriptor } from '@shelf/shared'
 import { IS_DEMO, getSupabaseAdmin } from './db'
 import { DEMO_USER_ID } from './demo'

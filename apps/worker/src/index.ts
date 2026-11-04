@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { loadRootEnv } from './env.js'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,6 +26,8 @@ import type { Job, Stage } from './types.js'
    stage. The item flips to `ready` after conversion — the user can
    start reading while OCR, embeddings and the AI pass continue.
    ══════════════════════════════════════════════════════════════ */
+
+loadRootEnv()
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/input'
 import { useTheme, ACCENTS } from '@/lib/theme'
 import { THEMES, type Theme } from '@shelf/shared'
 import { HOTKEY_HINTS } from '@/lib/hotkeys'
+import { AI_PROVIDER_IDS, AI_PROVIDER_LABELS, type AiProviderId } from '@shelf/shared'
 import { IS_DEMO } from '@/lib/db'
 
 const SECTIONS = [
@@ -24,7 +25,13 @@ const SECTIONS = [
   { slug: 'shortcuts', label: 'Shortcuts' },
 ]
 
-export function SettingsClient({ section }: { section: string }) {
+export function SettingsClient({
+  section,
+  provider,
+}: {
+  section: string
+  provider: { id: AiProviderId | null; label: string; model: string | null; embeddingModel: string | null }
+}) {
   const router = useRouter()
   const { theme, accent, setTheme, setAccent } = useTheme()
 
@@ -192,23 +199,44 @@ export function SettingsClient({ section }: { section: string }) {
               <div>
                 <Label>Provider</Label>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {['OpenAI', 'Anthropic', 'Ollama (local)'].map((p, i) => (
+                  {AI_PROVIDER_IDS.map((id) => (
                     <span
-                      key={p}
+                      key={id}
                       className={cn(
                         'rounded-lg border px-2.5 py-1 text-[12px]',
-                        i === 0 ? 'border-accent/50 bg-accent/10 text-accent' : 'border-line/10 text-muted',
+                        provider.id === id
+                          ? 'border-accent/50 bg-accent/10 text-accent'
+                          : 'border-line/10 text-muted',
                       )}
                     >
-                      {p}
+                      {AI_PROVIDER_LABELS[id]}
                     </span>
                   ))}
                 </div>
+                <p className="mt-2 text-[11.5px] text-faint">
+                  Active: <span className="text-muted">{provider.label}</span>
+                  {provider.model && (
+                    <>
+                      {' · '}
+                      <span className="font-mono text-muted">{provider.model}</span>
+                    </>
+                  )}
+                  {provider.embeddingModel && (
+                    <>
+                      {' · embeddings '}
+                      <span className="font-mono text-muted">{provider.embeddingModel}</span>
+                    </>
+                  )}
+                </p>
               </div>
               <div>
                 <Label>Your own API key</Label>
-                <Input type="password" placeholder="sk-…" className="mt-1.5 max-w-sm font-mono" />
-                <p className="mt-1.5 text-[11.5px] text-faint">Encrypted at rest. Never logged.</p>
+                <Input type="password" placeholder="AQ.… / sk-…" className="mt-1.5 max-w-sm font-mono" />
+                <p className="mt-1.5 text-[11.5px] text-faint">
+                  Encrypted at rest. Never logged. Set it on the server as{' '}
+                  <span className="font-mono">GEMINI_API_KEY</span>, <span className="font-mono">OPENAI_API_KEY</span> or{' '}
+                  <span className="font-mono">ANTHROPIC_API_KEY</span>.
+                </p>
               </div>
             </CardContent>
           </Card>

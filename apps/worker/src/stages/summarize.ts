@@ -1,7 +1,5 @@
-import OpenAI from 'openai'
 import { z } from 'zod'
-
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+import { chatJson } from '../ai-provider.js'
 
 export const IngestionSchema = z.object({
   title: z.string(),
@@ -22,27 +20,22 @@ export type Ingestion = z.infer<typeof IngestionSchema>
  * thing. Cost stays flat regardless of file size.
  */
 export async function summarize(sample: string, hints: { title?: string } = {}): Promise<Ingestion> {
-  const res = await client.chat.completions.create({
-    model: process.env.INGEST_MODEL ?? 'gpt-4o-mini',
-    response_format: { type: 'json_object' },
+  const raw = await chatJson({
+    system:
+      'You catalogue documents. Return JSON with: title, series, volume, chapter, summary (3 sentences max), ' +
+      'tags (max 8), keyTerms (max 15, each {term, definition}), language, contentKind ' +
+      '(manga|textbook|slides|article|fiction|other).',
+    user: `Filename hint: ${hints.title ?? 'unknown'}\n\nDOCUMENT SAMPLE:\n${sample.slice(0, 6000)}`,
     temperature: 0.2,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You catalogue documents. Return JSON with: title, series, volume, chapter, summary (3 sentences max), ' +
-          'tags (max 8), keyTerms (max 15, each {term, definition}), language, contentKind ' +
-          '(manga|textbook|slides|article|fiction|other).',
-      },
-      {
-        role: 'user',
-        content: `Filename hint: ${hints.title ?? 'unknown'}\n\nDOCUMENT SAMPLE:\n${sample.slice(0, 6000)}`,
-      },
-    ],
   })
 
-  const raw = res.choices[0]?.message?.content ?? '{}'
-  const parsed = IngestionSchema.safeParse(JSON.parse(raw))
+  let json: unknown = {}
+  try {
+    json = JSON.parse(raw)
+  } catch {
+    json = {}
+  }
+  const parsed = IngestionSchema.safeParse(json)
   if (!parsed.success) {
     // Never fail the whole item over a malformed AI response.
     return {
