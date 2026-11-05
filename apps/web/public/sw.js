@@ -72,17 +72,21 @@ self.addEventListener('fetch', (event) => {
 
   // Static assets: cache first, then fill the cache in the background.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached
-      return fetch(request)
-        .then((response) => {
-          if (response.ok && response.type === 'basic') {
-            const copy = response.clone()
-            caches.open(VERSION).then((cache) => cache.put(request, copy))
-          }
-          return response
-        })
-        .catch(() => cached)
-    }),
+    caches
+      .match(request, { cacheName: VERSION })
+      .then((cached) => {
+        if (cached) return cached
+        return fetch(request)
+          .then((response) => {
+            if (response.ok && response.type === 'basic') {
+              const copy = response.clone()
+              caches.open(VERSION).then((cache) => cache.put(request, copy))
+            }
+            return response
+          })
+          // A failed fetch has to answer with a Response — `undefined`
+          // would throw inside respondWith and take the page down.
+          .catch(() => Response.error())
+      }),
   )
 })

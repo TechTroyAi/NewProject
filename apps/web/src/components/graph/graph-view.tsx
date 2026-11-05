@@ -1,16 +1,23 @@
 'use client'
 import * as React from 'react'
 import Link from 'next/link'
-import {
-  forceCenter,
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  type Simulation,
-} from 'd3-force'
+import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
+import type ForceGraph2DType from 'react-force-graph-2d'
 import type { GraphEdge, GraphNode, NodeKind } from '@shelf/shared'
 import { cn } from '@/lib/utils'
+
+/**
+ * The graph.
+ *
+ * `react-force-graph-2d` draws on a canvas, so a vault with thousands
+ * of notes still moves at 60fps — and it brings dragging, panning and
+ * zooming with it, which the SVG version never had.
+ *
+ * It is loaded with `ssr: false` because the canvas and the force
+ * simulation both need the browser.
+ */
+const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false }) as typeof ForceGraph2DType
 
 const KIND_COLOR: Record<NodeKind, string> = {
   note: 'rgb(var(--note))',
@@ -41,14 +48,17 @@ function hrefFor(node: GraphNode): string {
   return '#'
 }
 
-interface Sim {
+interface GraphNodeShape {
   id: string
-  x: number
-  y: number
-  vx?: number
-  vy?: number
-  fx?: number | null
-  fy?: number | null
+  label: string
+  kind: NodeKind
+  degree: number
+}
+
+interface GraphLinkShape {
+  source: string
+  target: string
+  kind: string
 }
 
 export function GraphView({
@@ -57,33 +67,38 @@ export function GraphView({
   height = 520,
   compact = false,
   focusId,
+  onOpen,
 }: {
   nodes: GraphNode[]
   edges: GraphEdge[]
   height?: number
   compact?: boolean
   focusId?: string | null
+  /** Called with the node the user clicked. Defaults to navigating. */
+  onOpen?: (node: GraphNode) => void
 }) {
+  const router = useRouter()
   const wrapRef = React.useRef<HTMLDivElement>(null)
   const [size, setSize] = React.useState({ w: 900, h: height })
-  const [positions, setPositions] = React.useState<Map<string, Sim>>(new Map())
   const [hover, setHover] = React.useState<string | null>(null)
-  const simRef = React.useRef<Simulation<Sim, undefined> | null>(null)
 
   React.useEffect(() => {
     const el = wrapRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => {
+    const measure = () => {
       const r = el.getBoundingClientRect()
       setSize({ w: Math.max(320, r.width), h: height })
-    })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
   }, [height])
 
   // The shape of the graph — not the array identity. A parent may hand
-  // us a freshly built array on every render, and restarting the
-  // simulation each time would leave it permanently unsettled.
+  // us a freshly built array on every render, and the simulation
+  // mutates its data, so a new object every time would restart the
+  // layout each frame.
   const graphSig = React.useMemo(
     () =>
       `${nodes.map((n) => n.id).join('|')}#${edges
@@ -91,76 +106,26 @@ export function GraphView({
         .join('|')}`,
     [nodes, edges],
   )
-  const nodesRef = React.useRef(nodes)
-  nodesRef.current = nodes
-  const edgesRef = React.useRef(edges)
-  edgesRef.current = edges
-  const sizeRef = React.useRef(size)
-  sizeRef.current = size
-
-  React.useEffect(() => {
-    const nodes = nodesRef.current
-    const edges = edgesRef.current
-    const { w, h } = sizeRef.current
-
-    const sims: Sim[] = nodes.map((n, i) => {
-      const angle = (i / Math.max(1, nodes.length)) * Math.PI * 2
-      const radius = compact ? 70 : 130
-      return {
-        id: n.id,
-        x: w / 2 + Math.cos(angle) * radius,
-        y: h / 2 + Math.sin(angle) * radius,
-      }
-    })
-
-    const ids = new Set(sims.map((s) => s.id))
-    const links = edges
-      .filter((e) => ids.has(e.source) && ids.has(e.target))
-      .map((e) => ({ source: e.source, target: e.target, kind: e.kind }))
-
-    const sim = forceSimulation(sims)
-      .force(
-        'link',
-        forceLink<Sim, { source: string | Sim; target: string | Sim; kind: string }>(links)
-          .id((d) => d.id)
-          .distance(compact ? 55 : 92)
-          .strength(compact ? 0.5 : 0.35),
-      )
-      .force('charge', forceManyBody().strength(compact ? -110 : -190))
-      .force('center', forceCenter(w / 2, h / 2))
-      .force('collide', forceCollide<Sim>().radius(compact ? 12 : 20))
-      .alphaDecay(0.045)
-
-    simRef.current = sim as unknown as Simulation<Sim, undefined>
-
-    // One React update per animation frame, not per simulation tick.
-    let raf = 0
-    sim.on('tick', () => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        setPositions(new Map(sims.map((s) => [s.id, { ...s }])))
-      })
-    })
-
-    return () => {
-      if (raf) cancelAnimationFrame(raf)
-      sim.stop()
-    }
-  }, [graphSig, compact])
-
-  // Resizing must not restart the layout — just re-centre it.
-  React.useEffect(() => {
-    const sim = simRef.current
-    if (!sim) return
-    sim.force('center', forceCenter(size.w / 2, size.h / 2))
-    sim.alpha(0.25).restart()
-  }, [size.w, size.h])
 
   const nodeById = React.useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
 
+  const graphData = React.useMemo(() => {
+    const ids = new Set(nodes.map((n) => n.id))
+    const shaped: GraphNodeShape[] = nodes.map((n) => ({
+      id: n.id,
+      label: n.label,
+      kind: n.kind,
+      degree: n.degree,
+    }))
+    const links: GraphLinkShape[] = edges
+      .filter((e) => ids.has(e.source) && ids.has(e.target))
+      .map((e) => ({ source: e.source, target: e.target, kind: e.kind }))
+    return { nodes: shaped, links }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphSig])
+
   const neighbours = React.useMemo(() => {
-    if (!hover) return new Set<string>()
+    if (!hover) return null
     const s = new Set<string>([hover])
     for (const e of edges) {
       if (e.source === hover) s.add(e.target)
@@ -169,96 +134,101 @@ export function GraphView({
     return s
   }, [hover, edges])
 
-  const connected = hover ? neighbours : null
+  const hovered = hover ? nodeById.get(hover) : null
 
   return (
     <div ref={wrapRef} className="relative w-full" style={{ height }}>
-      <svg width="100%" height={height} className="overflow-visible">
-        <defs>
-          <radialGradient id="nodeGlow">
-            <stop offset="0%" stopColor="rgb(var(--accent))" stopOpacity=".28" />
-            <stop offset="100%" stopColor="rgb(var(--accent))" stopOpacity="0" />
-          </radialGradient>
-        </defs>
+      <ForceGraph2D<GraphNodeShape, GraphLinkShape>
+        width={size.w}
+        height={size.h}
+        graphData={graphData}
+        backgroundColor="rgba(0,0,0,0)"
+        nodeRelSize={compact ? 4 : 6}
+        nodeVal={(n) => 1 + Math.min(9, n.degree * 1.4)}
+        nodeLabel={(n) => n.label}
+        nodeColor={(n) => KIND_COLOR[n.kind] ?? 'rgb(var(--accent))'}
+        linkColor={(l) => {
+          const dim = neighbours ? !(neighbours.has(String(l.source)) && neighbours.has(String(l.target))) : false
+          if (dim) return 'rgba(var(--fg), 0.05)'
+          return l.kind === 'ai_suggested' ? 'rgb(var(--accent))' : 'rgba(var(--fg), 0.18)'
+        }}
+        linkWidth={(l) => (l.kind === 'ai_suggested' ? 1.4 : 1)}
+        linkLineDash={(l) => (l.kind === 'ai_suggested' ? [4, 3] : null)}
+        linkDirectionalArrowLength={0}
+        nodeCanvasObjectMode={() => 'replace'}
+        nodeCanvasObject={(node, ctx, globalScale) => {
+          const n = node as unknown as GraphNodeShape & { x: number; y: number }
+          const r = (compact ? 4.5 : 6) + Math.min(9, n.degree * 1.4)
+          const dim = neighbours ? !neighbours.has(n.id) : false
+          const isFocus = focusId === n.id
 
-        {/* edges */}
-        <g>
-          {edges.map((e, i) => {
-            const a = positions.get(e.source)
-            const b = positions.get(e.target)
-            if (!a || !b) return null
-            const dim = connected ? !(connected.has(e.source) && connected.has(e.target)) : false
-            return (
-              <line
-                key={i}
-                x1={a.x}
-                y1={a.y}
-                x2={b.x}
-                y2={b.y}
-                stroke={e.kind === 'ai_suggested' ? 'rgb(var(--accent))' : 'rgb(var(--fg) / .18)'}
-                strokeWidth={e.kind === 'ai_suggested' ? 1.4 : 1}
-                strokeDasharray={e.kind === 'ai_suggested' ? '4 3' : undefined}
-                opacity={dim ? 0.08 : 1}
-                className="transition-opacity duration-200"
-              />
-            )
-          })}
-        </g>
+          if (isFocus) {
+            ctx.beginPath()
+            ctx.arc(n.x, n.y, r + 9, 0, 2 * Math.PI)
+            ctx.fillStyle = 'rgba(var(--accent), 0.16)'
+            ctx.fill()
+          }
 
-        {/* nodes */}
-        <g>
-          {nodes.map((n) => {
-            const p = positions.get(n.id)
-            if (!p) return null
-            const r = (compact ? 4.5 : 6) + Math.min(9, n.degree * 1.4)
-            const dim = connected ? !connected.has(n.id) : false
-            const isFocus = focusId === n.id
-            return (
-              <g
-                key={n.id}
-                transform={`translate(${p.x},${p.y})`}
-                opacity={dim ? 0.18 : 1}
-                className="cursor-pointer transition-opacity duration-200"
-                onMouseEnter={() => setHover(n.id)}
-                onMouseLeave={() => setHover(null)}
-              >
-                {isFocus && <circle r={r + 9} fill="url(#nodeGlow)" />}
-                <circle
-                  r={r}
-                  fill={KIND_COLOR[n.kind]}
-                  stroke="rgb(var(--bg))"
-                  strokeWidth={2}
-                  opacity={0.92}
-                />
-                {!compact && (
-                  <text
-                    y={r + 14}
-                    textAnchor="middle"
-                    className="pointer-events-none select-none"
-                    style={{
-                      fontSize: 11,
-                      fill: 'rgb(var(--muted))',
-                      fontWeight: 500,
-                    }}
-                  >
-                    {n.label.length > 26 ? n.label.slice(0, 25) + '…' : n.label}
-                  </text>
-                )}
-              </g>
-            )
-          })}
-        </g>
-      </svg>
+          ctx.beginPath()
+          ctx.arc(n.x, n.y, r, 0, 2 * Math.PI)
+          ctx.fillStyle = KIND_COLOR[n.kind] ?? 'rgb(var(--accent))'
+          ctx.globalAlpha = dim ? 0.2 : 0.92
+          ctx.fill()
+          ctx.globalAlpha = 1
+          ctx.lineWidth = 2 / globalScale
+          ctx.strokeStyle = 'rgb(var(--bg))'
+          ctx.stroke()
+
+          if (compact) return
+          // The label only appears when the graph is zoomed in enough
+          // for it to be readable.
+          const fontSize = 11 / globalScale
+          if (fontSize < 4) return
+          ctx.font = `500 ${fontSize}px system-ui, sans-serif`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'top'
+          ctx.fillStyle = 'rgb(var(--muted))'
+          ctx.globalAlpha = dim ? 0.25 : 1
+          const label = n.label.length > 26 ? `${n.label.slice(0, 25)}…` : n.label
+          ctx.fillText(label, n.x, n.y + r + 3 / globalScale)
+          ctx.globalAlpha = 1
+        }}
+        nodePointerAreaPaint={(node, color, ctx) => {
+          const n = node as unknown as GraphNodeShape & { x: number; y: number }
+          const r = (compact ? 4.5 : 6) + Math.min(9, n.degree * 1.4)
+          ctx.beginPath()
+          ctx.arc(n.x, n.y, r + 2, 0, 2 * Math.PI)
+          ctx.fillStyle = color
+          ctx.fill()
+        }}
+        onNodeHover={(node) => setHover(node ? (node as unknown as GraphNodeShape).id : null)}
+        onNodeClick={(node) => {
+          const n = node as unknown as GraphNodeShape
+          const original = nodeById.get(n.id)
+          if (!original) return
+          if (onOpen) onOpen(original)
+          else router.push(hrefFor(original))
+        }}
+        cooldownTicks={120}
+        enableNodeDrag
+        enablePanInteraction
+        enableZoomInteraction
+      />
 
       {/* hover card */}
-      {hover && nodeById.get(hover) && (
+      {hovered && (
         <div className="pointer-events-none absolute left-3 top-3 rounded-xl border border-line/12 bg-surface/95 px-3 py-2 shadow-pop backdrop-blur">
-          <p className="text-[12.5px] font-semibold">{nodeById.get(hover)!.label}</p>
+          <p className="text-[12.5px] font-semibold">{hovered.label}</p>
           <p className="mt-0.5 text-[11px] text-faint">
-            {KIND_LABEL[nodeById.get(hover)!.kind]} · {nodeById.get(hover)!.degree} link
-            {nodeById.get(hover)!.degree === 1 ? '' : 's'}
+            {KIND_LABEL[hovered.kind]} · {hovered.degree} link{hovered.degree === 1 ? '' : 's'}
           </p>
         </div>
+      )}
+
+      {!compact && (
+        <p className="pointer-events-none absolute bottom-2 right-3 text-[10.5px] text-faint">
+          drag to move · scroll to zoom
+        </p>
       )}
     </div>
   )

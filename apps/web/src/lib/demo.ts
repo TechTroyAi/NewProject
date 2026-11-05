@@ -132,8 +132,8 @@ export const demoProgress: Progress[] = [
   { user_id: DEMO_USER_ID, item_id: 'i-csm-162', current_page: 4, max_page_read: 4, percent: 18.2, finished: false, updated_at: days(0) },
   { user_id: DEMO_USER_ID, item_id: 'i-berserk-341', current_page: 9, max_page_read: 9, percent: 30, finished: false, updated_at: days(3) },
   { user_id: DEMO_USER_ID, item_id: 'i-bl-186', current_page: 41, max_page_read: 41, percent: 100, finished: true, updated_at: days(2) },
-  { user_id: DEMO_USER_ID, item_id: 'i-bl-183', current_page: 38, max_page_read: 38, percent: 100, finished: true, updated_at: days(4) },
-  { user_id: DEMO_USER_ID, item_id: 'i-csm-160', current_page: 22, max_page_read: 22, percent: 100, finished: true, updated_at: days(5) },
+  { user_id: DEMO_USER_ID, item_id: 'i-bl-187', current_page: 36, max_page_read: 36, percent: 100, finished: true, updated_at: days(4) },
+  { user_id: DEMO_USER_ID, item_id: 'i-csm-163', current_page: 24, max_page_read: 24, percent: 100, finished: true, updated_at: days(5) },
   { user_id: DEMO_USER_ID, item_id: 'i-ds-01', current_page: 42, max_page_read: 42, percent: 100, finished: true, updated_at: days(6) },
   { user_id: DEMO_USER_ID, item_id: 'i-ds-02', current_page: 38, max_page_read: 38, percent: 100, finished: true, updated_at: days(6) },
   { user_id: DEMO_USER_ID, item_id: 'i-refui-01', current_page: 28, max_page_read: 28, percent: 100, finished: true, updated_at: days(8) },
@@ -428,13 +428,22 @@ function card(
 }
 
 /** The tags the demo shelf is filed under. */
-export const demoTags: { id: string; name: string; color: string | null; count: number }[] = [
-  { id: 'tag-spoilers', name: 'spoilers', color: 'chapter', count: 12 },
-  { id: 'tag-theory', name: 'theory', color: 'series', count: 8 },
-  { id: 'tag-lecture', name: 'lecture', color: 'accent', count: 6 },
-  { id: 'tag-to-read', name: 'to-read', color: null, count: 4 },
-  { id: 'tag-motif', name: 'motif', color: 'wiki', count: 3 },
-]
+/**
+ * The tags the demo shelf is filed under.
+ *
+ * Derived from the demo items, so the sidebar links always lead
+ * somewhere — a made-up tag list is a dead end.
+ */
+export const demoTags: { id: string; name: string; color: string | null; count: number }[] = (() => {
+  const counts = new Map<string, number>()
+  for (const item of demoItems) {
+    for (const tag of item.ai_tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 8)
+    .map(([name, count]) => ({ id: `tag-${name}`, name, color: null, count }))
+})()
 
 export const demoDecks: {
   id: string

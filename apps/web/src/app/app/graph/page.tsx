@@ -17,7 +17,8 @@ export default async function GraphPage() {
       <div className="pb-4">
         <h1 className="text-[22px] font-semibold tracking-[-.02em]">Graph</h1>
         <p className="mt-1 text-[12.5px] text-muted">
-          Notes, series and chapters in one space. Hover a node to see its neighbourhood; click to open it.
+          Notes, series and chapters in one space. Hover a node to see its neighbourhood, drag to rearrange, scroll to
+          zoom, and click to open it.
         </p>
       </div>
 
