@@ -7,10 +7,13 @@ import { cn } from '@/lib/utils'
 import { Sidebar } from './sidebar'
 import { TopBar } from './topbar'
 import { RightPanel } from './right-panel'
+import { MobileSheet } from './mobile-sheet'
 import { CommandPalette } from './command-palette'
 import { GlobalDrop, UploadTray } from '@/components/upload/global-drop'
 import { useHotkeys } from '@/lib/hotkeys'
 import { useScopeStore } from '@/lib/scope-store'
+import { useUiStore } from '@/lib/ui-store'
+import { useChatStore } from '@/lib/chat-store'
 
 const MOBILE_TABS = [
   { href: '/app', label: 'Home', icon: Boxes },
@@ -35,6 +38,24 @@ export function AppShell({
   const router = useRouter()
   const pathname = usePathname()
   const setScope = useScopeStore((s) => s.setScope)
+  const setPanelOpen = useScopeStore((s) => s.setPanelOpen)
+  const setSheetOpen = useUiStore((s) => s.setSheetOpen)
+  const send = useChatStore((s) => s.send)
+
+  // The command palette asks the assistant a question by dispatching
+  // `shelf:ask`. On a wide screen that opens the right-hand panel; on
+  // a phone it opens the bottom sheet.
+  React.useEffect(() => {
+    const onAsk = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail
+      if (typeof detail !== 'string' || !detail.trim()) return
+      if (window.matchMedia('(min-width: 1024px)').matches) setPanelOpen(true)
+      else setSheetOpen(true)
+      void send(detail)
+    }
+    window.addEventListener('shelf:ask', onAsk)
+    return () => window.removeEventListener('shelf:ask', onAsk)
+  }, [send, setPanelOpen, setSheetOpen])
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -80,6 +101,7 @@ export function AppShell({
       </div>
 
       <RightPanel />
+      <MobileSheet />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <GlobalDrop />
       <UploadTray />
