@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vault — Dashboard concept</title>
+<style>
+  :root{
+    --bg:#08080C;
+    --surface:#101017;
+    --surface-2:#171720;
+    --surface-3:#1F1F2B;
+    --border:rgba(255,255,255,.07);
+    --border-strong:rgba(255,255,255,.13);
+    --text:#ECECF4;
+    --muted:#8E8EA6;
+    --muted-2:#63637C;
+    --violet:#7C6BF5;
+    --violet-soft:rgba(124,107,245,.16);
+    --indigo:#5B8DEF;
+    --amber:#F5A65B;
+    --amber-soft:rgba(245,166,91,.15);
+    --teal:#3DD6C0;
+    --rose:#F26D7D;
+    --ai-grad:linear-gradient(135deg,#7C6BF5 0%,#5B8DEF 55%,#3DD6C0 100%);
+    --r-lg:18px;
+    --r-md:13px;
+    --r-sm:9px;
+    --shadow:0 18px 44px -18px rgba(0,0,0,.85);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1100px 620px at 12% -12%, rgba(124,107,245,.13), transparent 62%),
+      radial-gradient(900px 520px at 88% 4%, rgba(91,141,239,.10), transparent 60%),
+      radial-gradient(760px 500px at 60% 108%, rgba(61,214,192,.06), transparent 62%),
+      var(--bg);
+    color:var(--text);
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+    font-size:14px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+  .mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+  ::selection{background:rgba(124,107,245,.4)}
+
+  /* ── shell ─────────────────────────────────────── */
+  .app{display:grid;grid-template-columns:238px 1fr 330px;height:100vh}
+
+  /* ── sidebar ───────────────────────────────────── */
+  .side{
+    border-right:1px solid var(--border);
+    background:linear-gradient(180deg,rgba(255,255,255,.028),rgba(255,255,255,0) 40%);
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .brand{display:flex;align-items:center;gap:10px;padding:16px 16px 12px}
+  .logo{
+    width:30px;height:30px;border-radius:9px;background:var(--ai-grad);
+    display:grid;place-items:center;box-shadow:0 6px 18px -6px rgba(124,107,245,.8);
+    flex:none;
+  }
+  .logo svg{width:17px;height:17px;fill:#fff}
+  .brand b{font-size:14.5px;letter-spacing:-.2px;font-weight:650}
+  .brand span{display:block;font-size:10.5px;color:var(--muted-2);letter-spacing:.3px}
+
+  .vault-pick{
+    margin:4px 12px 12px;padding:8px 10px;border:1px solid var(--border);
+    border-radius:var(--r-md);display:flex;align-items:center;gap:9px;cursor:pointer;
+    background:var(--surface);transition:.16s;
+  }
+  .vault-pick:hover{border-color:var(--border-strong);background:var(--surface-2)}
+  .vault-dot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 9px var(--teal);flex:none}
+  .vault-pick .nm{font-size:12.5px;font-weight:550;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vault-pick svg{width:13px;height:13px;fill:var(--muted-2)}
+
+  .nav{padding:0 10px;flex:1;overflow-y:auto;min-height:0}
+  .nav::-webkit-scrollbar{width:8px}
+  .nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:9px;border:2px solid transparent;background-clip:content-box}
+  .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.9px;color:var(--muted-2);padding:14px 8px 6px;font-weight:600}
+  .item{
+    display:flex;align-items:center;gap:10px;padding:7.5px 9px;border-radius:var(--r-sm);
+    color:var(--muted);font-size:13px;cursor:pointer;transition:.14s;position:relative;
+  }
+  .item:hover{background:rgba(255,255,255,.05);color:var(--text)}
+  .item.on{background:var(--violet-soft);color:#fff;font-weight:550}
+  .item.on::before{content:"";position:absolute;left:-10px;top:9px;bottom:9px;width:2.5px;border-radius:0 3px 3px 0;background:var(--violet)}
+  .item svg{width:16px;height:16px;fill:currentColor;opacity:.9;flex:none}
+  .item .ct{margin-left:auto;font-size:10.5px;color:var(--muted-2);background:rgba(255,255,255,.06);padding:1px 6px;border-radius:20px}
+  .item.on .ct{background:rgba(124,107,245,.3);color:#cfc9ff}
+
+  .tag{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:var(--r-sm);font-size:12.5px;color:var(--muted);cursor:pointer}
+  .tag:hover{background:rgba(255,255,255,.04);color:var(--text)}
+  .tag i{width:8px;height:8px;border-radius:3px;flex:none}
+
+  .side-foot{padding:10px 12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:9px}
+  .av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#3DD6C0,#5B8DEF);display:grid;place-items:center;font-size:11px;font-weight:700;color:#08131a;flex:none}
+  .side-foot .nm{font-size:12px;font-weight:550;line-height:1.25}
+  .side-foot .st{font-size:10.5px;color:var(--muted-2);display:flex;align-items:center;gap:5px}
+  .side-foot .st b{width:5px;height:5px;border-radius:50%;background:var(--teal);display:inline-block}
+
+  /* ── main ──────────────────────────────────────── */
+  .main{overflow-y:auto;min-width:0;padding:0 26px 40px}
+  .main::-webkit-scrollbar{width:10px}
+  .main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.09);border-radius:9px;border:3px solid transparent;background-clip:content-box}
+
+  .top{
+    position:sticky;top:0;z-index:20;margin:0 -26px 0;padding:13px 26px;
+    background:rgba(8,8,12,.72);backdrop-filter:blur(18px) saturate(1.4);
+    border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;
+  }
+  .search{
+    flex:1;max-width:520px;display:flex;align-items:center;gap:9px;padding:8px 12px;
+    border:1px solid var(--border);border-radius:11px;background:var(--surface);cursor:text;transition:.16s;
+  }
+  .search:hover{border-color:var(--border-strong)}
+  .search svg{width:15px;height:15px;fill:var(--muted-2);flex:none}
+  .search span{color:var(--muted-2);font-size:12.5px;flex:1}
+  .search kbd{font-size:10px;color:var(--muted-2);border:1px solid var(--border);border-radius:5px;padding:2px 5px;background:var(--surface-2)}
+  .top .sp{flex:1}
+  .icon-btn{width:32px;height:32px;border-radius:9px;border:1px solid var(--border);background:var(--surface);display:grid;place-items:center;cursor:pointer;transition:.15s;position:relative}
+  .icon-btn:hover{border-color:var(--border-strong);background:var(--surface-2)}
+  .icon-btn svg{width:15px;height:15px;fill:var(--muted)}
+  .icon-btn .badge{position:absolute;top:-4px;right:-4px;width:14px;height:14px;border-radius:50%;background:var(--rose);font-size:9px;display:grid;place-items:center;color:#fff;font-weight:700;border:2px solid var(--bg)}
+
+  .head{padding:26px 0 18px;display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+  .head h1{font-size:25px;font-weight:660;letter-spacing:-.7px}
+  .head h1 em{font-style:normal;background:var(--ai-grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .head p{color:var(--muted);font-size:12.5px;margin-top:4px}
+  .head .sp{flex:1}
+  .btn{
+    display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border-radius:10px;
+    border:1px solid var(--border-strong);background:var(--surface-2);font-size:12.5px;font-weight:550;cursor:pointer;transition:.15s;
+  }
+  .btn:hover{background:var(--surface-3);transform:translateY(-1px)}
+  .btn svg{width:14px;height:14px;fill:currentColor}
+  .btn.pri{background:var(--ai-grad);border-color:transparent;color:#fff;box-shadow:0 8px 22px -10px rgba(124,107,245,.9)}
+  .btn.pri:hover{box-shadow:0 12px 28px -10px rgba(124,107,245,1)}
+
+  /* stat row */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px 15px;position:relative;overflow:hidden;transition:.18s}
+  .stat:hover{border-color:var(--border-strong);transform:translateY(-2px)}
+  .stat .row{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .stat .ic{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;flex:none}
+  .stat .ic svg{width:13px;height:13px;fill:#fff}
+  .stat .t{font-size:11px;color:var(--muted);font-weight:550;letter-spacing:.2px}
+  .stat .v{font-size:22px;font-weight:680;letter-spacing:-.6px;line-height:1.1}
+  .stat .v small{font-size:11.5px;color:var(--muted);font-weight:500;margin-left:4px;letter-spacing:0}
+  .stat .d{font-size:10.5px;color:var(--teal);margin-top:5px;display:flex;align-items:center;gap:4px}
+  .stat .spark{position:absolute;right:0;bottom:0;opacity:.5}
+
+  /* grid */
+  .grid{display:grid;grid-template-columns:1.32fr 1fr;gap:14px;margin-bottom:14px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;display:flex;flex-direction:column}
+  .card-h{display:flex;align-items:center;gap:9px;padding:13px 15px;border-bottom:1px solid var(--border)}
+  .card-h h3{font-size:12.5px;font-weight:640;letter-spacing:.1px}
+  .card-h .sp{flex:1}
+  .card-h .lnk{font-size:11px;color:var(--muted-2);cursor:pointer;display:flex;align-items:center;gap:3px}
+  .card-h .lnk:hover{color:var(--violet)}
+  .card-h .lnk svg{width:11px;height:11px;fill:currentColor}
+  .tagpill{font-size:9.5px;text-transform:uppercase;letter-spacing:.7px;font-weight:700;padding:3px 7px;border-radius:6px}
+
+  /* continue reading */
+  .cont{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;padding:13px}
+  .mcard{cursor:pointer;transition:.18s}
+  .mcover{
+    aspect-ratio:3/4.15;border-radius:var(--r-md);position:relative;overflow:hidden;
+    border:1px solid var(--border);display:flex;flex-direction:column;justify-content:flex-end;padding:11px;
+  }
+  .mcover::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 30%,rgba(0,0,0,.75));}
+  .mcover .tt{position:relative;z-index:2;font-size:12.5px;font-weight:700;line-height:1.25;text-shadow:0 2px 8px rgba(0,0,0,.8)}
+  .mcover .ch{position:relative;z-index:2;font-size:10.5px;opacity:.82;margin-top:3px}
+  .mcard:hover .mcover{transform:translateY(-3px);border-color:var(--border-strong)}
+  .mcover{transition:.2s}
+  .ring{position:absolute;top:8px;right:8px;z-index:3;width:26px;height:26px}
+  .ring circle{fill:none;stroke-width:3}
+  .ring .bg{stroke:rgba(255,255,255,.18)}
+  .ring .fg{stroke:var(--amber);stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%}
+  .badge-new{position:absolute;top:8px;left:8px;z-index:3;font-size:8.5px;font-weight:800;letter-spacing:.6px;padding:3px 6px;border-radius:5px;background:var(--rose);color:#fff}
+
+  /* notes list */
+  .notes{padding:5px 7px 9px;flex:1}
+  .note{display:flex;align-items:flex-start;gap:10px;padding:8px 9px;border-radius:10px;cursor:pointer;transition:.14s}
+  .note:hover{background:rgba(255,255,255,.04)}
+  .note .ic{width:26px;height:26px;border-radius:8px;flex:none;display:grid;place-items:center;margin-top:1px}
+  .note .ic svg{width:13px;height:13px;fill:#fff}
+  .note .body{min-width:0;flex:1}
+  .note .tt{font-size:12.8px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .note .mt{font-size:11px;color:var(--muted-2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .note .mt em{font-style:normal;color:var(--violet)}
+  .note .mt b{color:var(--amber);font-weight:600}
+  .note .rt{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:none;margin-top:2px}
+  .note .tm{font-size:10px;color:var(--muted-2)}
+  .chips{display:flex;gap:4px}
+  .chip{font-size:9.5px;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.06);color:var(--muted);display:flex;align-items:center;gap:3px}
+  .chip svg{width:9px;height:9px;fill:currentColor}
+
+  /* graph card */
+  .graphwrap{position:relative;height:230px;background:
+    radial-gradient(600px 200px at 50% 0%,rgba(124,107,245,.07),transparent 70%),var(--surface)}
+  .graphwrap svg{position:absolute;inset:0;width:100%;height:100%}
+  .gnode{cursor:pointer}
+  .gnode circle{transition:.2s}
+  .glabel{font-size:9px;fill:var(--muted);font-family:Inter,sans-serif;pointer-events:none}
+  .legend{position:absolute;right:12px;bottom:11px;display:flex;gap:12px;background:rgba(16,16,23,.86);border:1px solid var(--border);padding:7px 11px;border-radius:10px;backdrop-filter:blur(8px)}
+  .legend div{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}
+  .legend i{width:8px;height:8px;border-radius:50%}
+
+  /* ai brief */
+  .brief{padding:11px;display:flex;flex-direction:column;gap:8px}
+  .bcard{border:1px solid var(--border);border-radius:var(--r-md);padding:11px 12px;background:var(--surface-2);cursor:pointer;transition:.16s;position:relative;overflow:hidden}
+  .bcard:hover{border-color:var(--border-strong);transform:translateX(2px)}
+  .bcard .hd{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+  .bcard .hd .ic{width:19px;height:19px;border-radius:6px;background:var(--ai-grad);display:grid;place-items:center;flex:none}
+  .bcard .hd .ic svg{width:10px;height:10px;fill:#fff}
+  .bcard .hd b{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .bcard p{font-size:12.3px;line-height:1.45;color:#DCDCEC}
+  .bcard p b{color:#fff;font-weight:600}
+  .bcard .go{margin-top:8px;font-size:11px;color:var(--violet);display:flex;align-items:center;gap:4px;font-weight:550}
+  .bcard .go svg{width:11px;height:11px;fill:currentColor}
+
+  /* ── right AI panel ────────────────────────────── */
+  .ai{
+    border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0;
+    background:linear-gradient(180deg,rgba(124,107,245,.055),transparent 30%);
+  }
+  .ai-h{padding:14px 16px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+  .ai-h .ic{width:30px;height:30px;border-radius:9px;background:var(--ai-grad);display:grid;place-items:center;flex:none;box-shadow:0 6px 16px -6px rgba(91,141,239,.85)}
+  .ai-h .ic svg{width:15px;height:15px;fill:#fff}
+  .ai-h b{font-size:13px;font-weight:640;display:block;letter-spacing:-.1px}
+  .ai-h span{font-size:10.5px;color:var(--muted-2);display:flex;align-items:center;gap:5px}
+  .ai-h span i{width:5px;height:5px;border-radius:50%;background:var(--teal);display:inline-block;box-shadow:0 0 7px var(--teal)}
+  .ctx{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap}
+  .ctxc{display:flex;align-items:center;gap:5px;font-size:10.5px;padding:4px 8px;border-radius:7px;background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--muted)}
+  .ctxc svg{width:10px;height:10px;fill:currentColor}
+  .ctxc.v{color:#C4BCFF;border-color:rgba(124,107,245,.35);background:var(--violet-soft)}
+  .ctxc.a{color:#FFD3A8;border-color:rgba(245,166,91,.32);background:var(--amber-soft)}
+
+  .chat{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;min-height:0}
+  .chat::-webkit-scrollbar{width:8px}
+  .chat::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:9px;border:2px solid transparent;background-clip:content-box}
+  .msg{display:flex;gap:9px;max-width:100%}
+  .msg .av2{width:25px;height:25px;border-radius:8px;flex:none;display:grid;place-items:center;font-size:10px;font-weight:700}
+  .msg.ai .av2{background:var(--ai-grad);color:#fff}
+  .msg.me .av2{background:rgba(255,255,255,.1);color:var(--muted)}
+  .bub{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;font-size:12.4px;line-height:1.5;color:#DCDCEC;max-width:246px}
+  .msg.me .bub{background:rgba(124,107,245,.13);border-color:rgba(124,107,245,.3)}
+  .bub .ref{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--violet);margin-top:7px;padding-top:7px;border-top:1px dashed rgba(255,255,255,.1);cursor:pointer}
+  .bub .ref svg{width:10px;height:10px;fill:currentColor}
+  .typing{display:flex;gap:4px;padding:12px}
+  .typing i{width:5px;height:5px;border-radius:50%;background:var(--muted);animation:bl 1.3s infinite}
+  .typing i:nth-child(2){animation-delay:.18s}.typing i:nth-child(3){animation-delay:.36s}
+  @keyframes bl{0%,60%,100%{opacity:.28;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+
+  .composer{margin:0 12px 12px;border:1px solid var(--border);border-radius:14px;background:var(--surface-2);padding:10px 11px 9px;transition:.18s}
+  .composer:focus-within{border-color:rgba(124,107,245,.5);box-shadow:0 0 0 3px rgba(124,107,245,.1)}
+  .composer .ph{font-size:12.4px;color:var(--muted-2)}
+  .composer .row{display:flex;align-items:center;gap:7px;margin-top:9px}
+  .composer .row .sp{flex:1}
+  .mini{width:26px;height:26px;border-radius:8px;border:1px solid var(--border);background:var(--surface);display:grid;place-items:center;cursor:pointer}
+  .mini svg{width:12px;height:12px;fill:var(--muted)}
+  .send{width:28px;height:28px;border-radius:9px;background:var(--ai-grad);border:none;display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 16px -6px rgba(124,107,245,.9)}
+  .send svg{width:13px;height:13px;fill:#fff}
+
+  /* palette */
+  .pal{position:fixed;inset:0;background:rgba(4,4,7,.66);backdrop-filter:blur(6px);display:none;place-items:start center;padding-top:14vh;z-index:100}
+  .pal.on{display:grid}
+  .palbox{width:580px;background:var(--surface);border:1px solid var(--border-strong);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+  .palin{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+  .palin svg{width:15px;height:15px;fill:var(--muted-2)}
+  .palin input{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:14.5px;font-family:inherit}
+  .palin input::placeholder{color:var(--muted-2)}
+  .palres{padding:7px;max-height:330px;overflow:auto}
+  .palres .gr{font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--muted-2);padding:9px 10px 5px;font-weight:700}
+  .pali{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;cursor:pointer;font-size:12.8px}
+  .pali:hover,.pali.sel{background:var(--violet-soft)}
+  .pali .ic{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;flex:none}
+  .pali .ic svg{width:12px;height:12px;fill:#fff}
+  .pali .sp{flex:1}
+  .pali .k{font-size:10px;color:var(--muted-2)}
+
+  .toast{
+    position:fixed;bottom:22px;left:50%;transform:translate(-50%,20px);opacity:0;pointer-events:none;
+    background:var(--surface-3);border:1px solid var(--border-strong);padding:9px 15px;border-radius:11px;font-size:12.3px;
+    box-shadow:var(--shadow);transition:.25s;z-index:200;
+  }
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+  .toast b{color:var(--violet)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══ SIDEBAR ══ -->
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      </div>
+      <div><b>Vault</b><span>notes · manga · ai</span></div>
+    </div>
+
+    <div class="vault-pick">
+      <span class="vault-dot"></span>
+      <span class="nm">Personal Vault</span>
+      <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+    </div>
+
+    <nav class="nav">
+      <div class="lbl">Workspace</div>
+      <div class="item on" data-view="Dashboard">
+        <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+        Dashboard
+      </div>
+      <div class="item" data-view="Notes">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+        Notes <span class="ct">284</span>
+      </div>
+      <div class="item" data-view="Graph">
+        <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 00-1 5.83L7.5 14.6A3 3 0 006 18a3 3 0 003 3 3 3 0 002.4-1.2l5.7 1.3A3 3 0 1019 17a3 3 0 00-2.9-3.7l-5.8-1.3A3 3 0 0012 10a3 3 0 001-5.83zM9 18a1 1 0 110 2 1 1 0 010-2zm10-2a1 1 0 110 2 1 1 0 010-2z"/></svg>
+        Graph
+      </div>
+      <div class="item" data-view="Manga">
+        <svg viewBox="0 0 24 24"><path d="M4 3h13a3 3 0 013 3v13a2 2 0 01-2 2H4a1 1 0 01-1-1V4a1 1 0 011-1zm1 2v14h13V6a1 1 0 00-1-1H5zm4 2h5v2H9V7zm0 4h5v2H9v-2zm0 4h3v2H9v-2z"/></svg>
+        Manga <span class="ct">42</span>
+      </div>
+      <div class="item" data-view="Reader">
+        <svg viewBox="0 0 24 24"><path d="M21 4H3a1 1 0 00-1 1v12a1 1 0 001 1h6v2H7v2h10v-2h-2v-2h6a1 1 0 001-1V5a1 1 0 00-1-1zm-1 12H4V6h16v10z"/></svg>
+        Reader
+      </div>
+
+      <div class="lbl">AI</div>
+      <div class="item" data-view="Assistant">
+        <svg viewBox="0 0 24 24"><path d="M12 2l1.9 4.6L18.5 8.5l-4.6 1.9L12 15l-1.9-4.6L5.5 8.5l4.6-1.9L12 2zm6 11l.9 2.1 2.1.9-2.1.9L18 19l-.9-2.1-2.1-.9 2.1-.9L18 13zM6 13l.8 1.9 1.9.8-1.9.8L6 18.4l-.8-1.9-1.9-.8 1.9-.8L6 13z"/></svg>
+        Assistant
+      </div>
+      <div class="item" data-view="Automations">
+        <svg viewBox="0 0 24 24"><path d="M13 2v4h-1v3h3V6h4v3h1v3h-3v2h-2v-3H9v3H7v2H5v-2H2v-3h3V8h3V6h3V2h2zm6 12h-1v3h-3v2h4v2h-2v1h-2v-2h-3v-2h3v-3h1v3h3v-4z"/></svg>
+        Automations <span class="ct">7</span>
+      </div>
+
+      <div class="lbl">Collections</div>
+      <div class="tag"><i style="background:#7C6BF5"></i>Manga Theory</div>
+      <div class="tag"><i style="background:#F5A65B"></i>Panel Analysis</div>
+      <div class="tag"><i style="background:#3DD6C0"></i>Daily Journal</div>
+      <div class="tag"><i style="background:#F26D7D"></i>Characters</div>
+
+      <div class="lbl">Tags</div>
+      <div class="tag"><i style="background:#5B8DEF"></i>#spoilers</div>
+      <div class="tag"><i style="background:#8E8EA6"></i>#to-read</div>
+      <div class="tag"><i style="background:#E3C567"></i>#theory</div>
+    </nav>
+
+    <div class="side-foot">
+      <div class="av">TR</div>
+      <div style="flex:1;min-width:0">
+        <div class="nm">Troy</div>
+        <div class="st"><b></b> Local vault · synced</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ══ MAIN ══ -->
+  <main class="main">
+    <header class="top">
+      <div class="search" id="openPal">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.49 4.49 0 019.5 14z"/></svg>
+        <span>Search notes, manga, ask AI…</span>
+        <kbd>⌘K</kbd>
+      </div>
+      <div class="sp"></div>
+      <div class="icon-btn" title="Daily note">
+        <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm0 18H5V9h14v12zM7 11h5v5H7z"/></svg>
+      </div>
+      <div class="icon-btn" title="Sync">
+        <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+      </div>
+      <div class="icon-btn" title="Notifications">
+        <svg viewBox="0 0 24 24"><path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5a6 6 0 00-4-5.66V4a2 2 0 10-4 0v1.34A6 6 0 006 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+        <span class="badge">3</span>
+      </div>
+    </header>
+
+    <div class="head">
+      <div>
+        <h1>Good evening, <em>Troy</em></h1>
+        <p>Tuesday, 4 November 2026 · 6 notes touched · 3 chapters waiting</p>
+      </div>
+      <div class="sp"></div>
+      <button class="btn" data-toast="Graph view opened — nodes: notes, series, chapters">
+        <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 00-1 5.83L7.5 14.6A3 3 0 006 18a3 3 0 003 3 3 3 0 002.4-1.2l5.7 1.3A3 3 0 1019 17a3 3 0 00-2.9-3.7l-5.8-1.3A3 3 0 0012 10a3 3 0 001-5.83z"/></svg>
+        Open graph
+      </button>
+      <button class="btn pri" data-toast="New daily note created — 2026-11-04">
+        <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        New note
+      </button>
+    </div>
+
+    <!-- stats -->
+    <section class="stats">
+      <div class="stat">
+        <div class="row">
+          <div class="ic" style="background:linear-gradient(135deg,#7C6BF5,#5B8DEF)"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg></div>
+          <span class="t">Notes this week</span>
+        </div>
+        <div class="v">47 <small>/ 62 goal</small></div>
+        <div class="d">↑ 18% vs last week</div>
+      </div>
+      <div class="stat">
+        <div class="row">
+          <div class="ic" style="background:linear-gradient(135deg,#F5A65B,#F26D7D)"><svg viewBox="0 0 24 24"><path d="M21 4H3a1 1 0 00-1 1v12a1 1 0 001 1h6v2H7v2h10v-2h-2v-2h6a1 1 0 001-1V5a1 1 0 00-1-1z"/></svg></div>
+          <span class="t">Chapters read</span>
+        </div>
+        <div class="v">12 <small>chapters</small></div>
+        <div class="d">↑ 4 vs last week</div>
+      </div>
+      <div class="stat">
+        <div class="row">
+          <div class="ic" style="background:linear-gradient(135deg,#3DD6C0,#5B8DEF)"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2zm0 18a8 8 0 118-8 8 8 0 01-8 8zm1-13h-2v6l5 3 1-1.7-4-2.3V7z"/></svg></div>
+          <span class="t">Reading streak</span>
+        </div>
+        <div class="v">21 <small>days</small></div>
+        <div class="d">Personal best: 34 days</div>
+      </div>
+      <div class="stat">
+        <div class="row">
+          <div class="ic" style="background:linear-gradient(135deg,#7C6BF5,#3DD6C0)"><svg viewBox="0 0 24 24"><path d="M12 2l1.9 4.6L18.5 8.5l-4.6 1.9L12 15l-1.9-4.6L5.5 8.5l4.6-1.9L12 2z"/></svg></div>
+          <span class="t">AI actions</span>
+        </div>
+        <div class="v">38 <small>this month</small></div>
+        <div class="d">9 summaries · 14 wikis</div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <!-- continue reading -->
+      <section class="card">
+        <div class="card-h">
+          <span class="tagpill" style="background:var(--amber-soft);color:var(--amber)">Reader</span>
+          <h3>Continue reading</h3>
+          <div class="sp"></div>
+          <div class="lnk" data-toast="Full library">Library <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg></div>
+        </div>
+        <div class="cont">
+          <div class="mcard" data-toast="Opening Blue Lock — ch. 184 (page 12)">
+            <div class="mcover" style="background:linear-gradient(160deg,#1E3A8A,#0F172A 55%,#7C6BF5)">
+              <span class="badge-new">NEW</span>
+              <svg class="ring" viewBox="0 0 26 26"><circle class="bg" cx="13" cy="13" r="10.5"/><circle class="fg" cx="13" cy="13" r="10.5" stroke-dasharray="66" stroke-dashoffset="26"/></svg>
+              <div class="tt">Blue Lock</div>
+              <div class="ch">ch. 184 · p.12/38</div>
+            </div>
+          </div>
+          <div class="mcard" data-toast="Opening Chainsaw Man — ch. 162">
+            <div class="mcover" style="background:linear-gradient(160deg,#7F1D1D,#111827 60%,#F26D7D)">
+              <svg class="ring" viewBox="0 0 26 26"><circle class="bg" cx="13" cy="13" r="10.5"/><circle class="fg" cx="13" cy="13" r="10.5" stroke-dasharray="66" stroke-dashoffset="10"/></svg>
+              <div class="tt">Chainsaw Man</div>
+              <div class="ch">ch. 162 · p.4/22</div>
+            </div>
+          </div>
+          <div class="mcard" data-toast="Opening Berserk — ch. 341">
+            <div class="mcover" style="background:linear-gradient(160deg,#3F3F46,#0A0A0C 60%,#F5A65B)">
+              <svg class="ring" viewBox="0 0 26 26"><circle class="bg" cx="13" cy="13" r="10.5"/><circle class="fg" cx="13" cy="13" r="10.5" stroke-dasharray="66" stroke-dashoffset="45"/></svg>
+              <div class="tt">Berserk</div>
+              <div class="ch">ch. 341 · p.9/30</div>
+            </div>
+          </div>
+        </div>
+        <div class="card-h" style="border-bottom:none;border-top:1px solid var(--border);gap:8px;flex-wrap:wrap">
+          <span class="tagpill" style="background:rgba(61,214,192,.14);color:var(--teal)">AI</span>
+          <h3 style="font-weight:550;font-size:12px;color:var(--muted)">"You're 4 chapters behind on <b style="color:var(--amber)">Blue Lock</b> — your theory note predicted ch. 190. Catch up?"</h3>
+        </div>
+      </section>
+
+      <!-- notes -->
+      <section class="card">
+        <div class="card-h">
+          <span class="tagpill" style="background:var(--violet-soft);color:#A99BFF">Vault</span>
+          <h3>Recent notes</h3>
+          <div class="sp"></div>
+          <div class="lnk" data-toast="All notes">All <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg></div>
+        </div>
+        <div class="notes">
+          <div class="note" data-toast="Opening note: Egoist awakening analysis">
+            <div class="ic" style="background:linear-gradient(135deg,#7C6BF5,#9D8CFF)"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg></div>
+            <div class="body">
+              <div class="tt">Egoist awakening — panel breakdown</div>
+              <div class="mt">links <em>Chainsaw Man</em> ch.162 · <b>8 backlinks</b></div>
+            </div>
+            <div class="rt">
+              <span class="tm">2m ago</span>
+              <div class="chips"><span class="chip"><svg viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2z"/></svg>3</span></div>
+            </div>
+          </div>
+          <div class="note" data-toast="Opening note: 2026-11-04">
+            <div class="ic" style="background:linear-gradient(135deg,#3DD6C0,#5B8DEF)"><svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm0 18H5V9h14v12z"/></svg></div>
+            <div class="body">
+              <div class="tt">2026-11-04 · daily</div>
+              <div class="mt">read ch.184–186 · theory note · <b>3 backlinks</b></div>
+            </div>
+            <div class="rt"><span class="tm">today</span></div>
+          </div>
+          <div class="note" data-toast="Opening note: Character wiki — Gojo">
+            <div class="ic" style="background:linear-gradient(135deg,#5B8DEF,#3DD6C0)"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2zm0 18a8 8 0 118-8 8 8 0 01-8 8z"/></svg></div>
+            <div class="body">
+              <div class="tt">Gojo Satoru — character wiki</div>
+            <div class="mt">AI-generated · <b>12 backlinks</b> · 6 sources</div>
+            </div>
+            <div class="rt">
+              <span class="tm">yest</span>
+              <div class="chips"><span class="chip" style="color:#A99BFF">AI</span></div>
+            </div>
+          </div>
+          <div class="note" data-toast="Opening note: Yuji vs. Sukuna">
+            <div class="ic" style="background:linear-gradient(135deg,#F26D7D,#F5A65B)"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg></div>
+            <div class="body">
+              <div class="tt">Yuji vs. Sukuna — fight choreography</div>
+              <div class="mt">links <em>JJK</em> ch.118 · <b>4 backlinks</b></div>
+            </div>
+            <div class="rt"><span class="tm">2d</span></div>
+          </div>
+          <div class="note" data-toast="Opening note: Reading habits 2026">
+            <div class="ic" style="background:linear-gradient(135deg,#63637C,#8E8EA6)"><svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></div>
+            <div class="body">
+              <div class="tt">Reading habits — 2026 dashboard</div>
+              <div class="mt">embeds <b>31 chapter stats</b></div>
+            </div>
+            <div class="rt"><span class="tm">3d</span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="grid" style="grid-template-columns:1.32fr 1fr">
+      <!-- graph -->
+      <section class="card">
+        <div class="card-h">
+          <span class="tagpill" style="background:var(--violet-soft);color:#A99BFF">Graph</span>
+          <h3>Knowledge graph — notes × manga</h3>
+          <div class="sp"></div>
+          <div class="lnk" data-toast="Filter: all node types">All types <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg></div>
+          <div class="lnk" data-toast="Full graph view">Expand <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg></div>
+        </div>
+        <div class="graphwrap">
+          <svg viewBox="0 0 620 230" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <radialGradient id="gv"><stop offset="0%" stop-color="#7C6BF5" stop-opacity=".30"/><stop offset="100%" stop-color="#7C6BF5" stop-opacity="0"/></radialGradient>
+            </defs>
+            <g stroke="rgba(255,255,255,.11)" stroke-width="1">
+              <line x1="300" y1="110" x2="160" y2="60"/><line x1="300" y1="110" x2="130" y2="150"/>
+              <line x1="300" y1="110" x2="330" y2="40"/><line x1="300" y1="110" x2="470" y2="80"/>
+              <line x1="300" y1="110" x2="500" y2="165"/><line x1="300" y1="110" x2="340" y2="180"/>
+              <line x1="160" y1="60" x2="75" y2="28"/><line x1="160" y1="60" x2="215" y2="25"/>
+              <line x1="130" y1="150" x2="70" y2="196"/><line x1="470" y1="80" x2="545" y2="35"/>
+              <line x1="500" y1="165" x2="575" y2="200"/><line x1="340" y1="180" x2="415" y2="200"/>
+              <line x1="330" y1="40" x2="410" y2="20"/>
+            </g>
+            <circle cx="300" cy="110" r="52" fill="url(#gv)"/>
+            <g class="gnode" data-toast="Egoist awakening — note">
+              <circle cx="300" cy="110" r="19" fill="#7C6BF5"/><circle cx="300" cy="110" r="27" fill="none" stroke="#7C6BF5" stroke-opacity=".28"/>
+              <text class="glabel" x="300" y="138" text-anchor="middle">Egoist awakening</text>
+            </g>
+            <g class="gnode" data-toast="Blue Lock — series">
+              <circle cx="160" cy="60" r="14" fill="#F5A65B"/><circle cx="160" cy="60" r="21" fill="none" stroke="#F5A65B" stroke-opacity=".3"/>
+              <text class="glabel" x="160" y="88" text-anchor="middle">Blue Lock</text>
+            </g>
+            <g class="gnode" data-toast="Ch. 184 — chapter">
+              <circle cx="130" cy="150" r="8" fill="#F26D7D"/><text class="glabel" x="130" y="170" text-anchor="middle">ch.184</text>
+            </g>
+            <g class="gnode" data-toast="Chainsaw Man — series">
+              <circle cx="330" cy="40" r="14" fill="#F5A65B"/><text class="glabel" x="330" y="22" text-anchor="middle">Chainsaw Man</text>
+            </g>
+            <g class="gnode" data-toast="Gojo Satoru — wiki">
+              <circle cx="470" cy="80" r="12" fill="#3DD6C0"/><text class="glabel" x="470" y="60" text-anchor="middle">Gojo</text>
+            </g>
+            <g class="gnode" data-toast="Yuji vs Sukuna — note">
+              <circle cx="500" cy="165" r="11" fill="#7C6BF5"/><text class="glabel" x="500" y="187" text-anchor="middle">Yuji vs Sukuna</text>
+            </g>
+            <g class="gnode" data-toast="Berserk — series">
+              <circle cx="340" cy="180" r="10" fill="#F5A65B"/><text class="glabel" x="340" y="202" text-anchor="middle">Berserk</text>
+            </g>
+            <g class="gnode" data-toast="panel-01.png — image node">
+              <circle cx="75" cy="28" r="6" fill="#5B8DEF"/><text class="glabel" x="75" y="16" text-anchor="middle">panel</text>
+            </g>
+            <g class="gnode" data-toast="Theory tag">
+              <circle cx="215" cy="25" r="6" fill="#63637C"/><text class="glabel" x="215" y="13" text-anchor="middle">#theory</text>
+            </g>
+            <g class="gnode" data-toast="Daily note 2026-11-04">
+              <circle cx="70" cy="196" r="7" fill="#3DD6C0"/><text class="glabel" x="70" y="216" text-anchor="middle">daily</text>
+            </g>
+            <g class="gnode" data-toast="JJK — series">
+              <circle cx="545" cy="35" r="9" fill="#F5A65B"/><text class="glabel" x="545" y="20" text-anchor="middle">JJK</text>
+            </g>
+            <g class="gnode" data-toast="Reading stats — note">
+              <circle cx="575" cy="200" r="6" fill="#7C6BF5"/><text class="glabel" x="575" y="218" text-anchor="middle">stats</text>
+            </g>
+            <g class="gnode" data-toast="Panel analysis — collection">
+              <circle cx="415" cy="200" r="7" fill="#5B8DEF"/><text class="glabel" x="415" y="218" text-anchor="middle">analysis</text>
+            </g>
+            <g class="gnode" data-toast="Reading habits — note">
+              <circle cx="410" cy="20" r="8" fill="#7C6BF5"/><text class="glabel" x="410" y="8" text-anchor="middle">habits</text>
+            </g>
+          </svg>
+          <div class="legend">
+            <div><i style="background:#7C6BF5"></i>Note</div>
+            <div><i style="background:#F5A65B"></i>Series</div>
+            <div><i style="background:#F26D7D"></i>Chapter</div>
+            <div><i style="background:#3DD6C0"></i>Wiki</div>
+            <div><i style="background:#5B8DEF"></i>Image</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ai brief -->
+      <section class="card">
+        <div class="card-h">
+          <span class="tagpill" style="background:rgba(61,214,192,.14);color:var(--teal)">AI</span>
+          <h3>Assistant picks for you</h3>
+          <div class="sp"></div>
+          <div class="lnk" data-toast="AI settings">Tune <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg></div>
+        </div>
+        <div class="brief">
+          <div class="bcard" data-toast="Drafting wiki page: GFL Egoist">
+            <div class="hd"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2l1.9 4.6L18.5 8.5l-4.6 1.9L12 15l-1.9-4.6L5.5 8.5l4.6-1.9L12 2z"/></svg></div><b>Wiki draft</b></div>
+            <p><b>3 character pages</b> ready from Blue Lock ch.184–186 — citations included.</p>
+            <div class="go">Review draft <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg></div>
+          </div>
+          <div class="bcard" data-toast="Connected 4 notes to Chainsaw Man ch.162">
+            <div class="hd"><div class="ic"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"/></svg></div><b>Connection found</b></div>
+            <p>Your note <b>"Denji's smile"</b> and <b>"Egoist awakening"</b> discuss the same motif. Link them?</p>
+            <div class="go">Create link <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg></div>
+          </div>
+          <div class="bcard" data-toast="Weekly journal summary generated">
+            <div class="hd"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2zm0 18a8 8 0 118-8 8 8 0 01-8 8zm1-13h-2v6l5 3 1-1.7-4-2.3V7z"/></svg></div><b>Weekly recap</b></div>
+            <p>47 notes, 12 chapters, <b>21-day streak</b>. Draft recap for Sunday's review.</p>
+            <div class="go">Add to daily note <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ══ RIGHT AI PANEL ══ -->
+  <aside class="ai">
+    <div class="ai-h">
+      <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2l1.9 4.6L18.5 8.5l-4.6 1.9L12 15l-1.9-4.6L5.5 8.5l4.6-1.9L12 2zm6 11l.9 2.1 2.1.9-2.1.9L18 19l-.9-2.1-2.1-.9 2.1-.9L18 13zM6 13l.8 1.9 1.9.8-1.9.8L6 18.4l-.8-1.9-1.9-.8 1.9-.8L6 13z"/></svg></div>
+      <div style="flex:1">
+        <b>Assistant</b>
+        <span><i></i> vault-aware · 284 notes indexed</span>
+      </div>
+      <div class="icon-btn"><svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 100 8 4 4 0 000-8z"/></svg></div>
+    </div>
+
+    <div class="ctx">
+      <div class="ctxc v"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"/></svg>Egoist awakening</div>
+      <div class="ctxc a"><svg viewBox="0 0 24 24"><path d="M21 4H3a1 1 0 00-1 1v12a1 1 0 001 1h6v2H7v2h10v-2h-2v-2h6a1 1 0 001-1V5a1 1 0 00-1-1z"/></svg>Blue Lock ch.184</div>
+      <div class="ctxc"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2z"/></svg>+ 3 more</div>
+    </div>
+
+    <div class="chat" id="chat">
+      <div class="msg ai">
+        <div class="av2">AI</div>
+        <div class="bub">
+          I see you were reading <b>Blue Lock ch.184</b> and your note <b>"Egoist awakening"</b> is open. Want me to pull the panels you marked and draft the analysis?
+          <div class="ref"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"/></svg>Egoist awakening — 8 backlinks</div>
+        </div>
+      </div>
+      <div class="msg me">
+        <div class="av2">TR</div>
+        <div class="bub">Yes, and cross-reference the Chainsaw Man note for the motif.</div>
+      </div>
+      <div class="msg ai">
+        <div class="av2">AI</div>
+        <div class="bub">
+          Done. Added 3 panel embeds + 1 cross-reference to <b>Chainsaw Man</b> ch.162. Both notes now share the <b>#motif/devil</b> tag.
+          <div class="ref"><svg viewBox="0 0 24 24"><path d="M21 4H3a1 1 0 00-1 1v12a1 1 0 001 1h6v2H7v2h10v-2h-2v-2h6a1 1 0 001-1V5a1 1 0 00-1-1z"/></svg>Open updated note</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="ph" id="ph">Ask about your vault…</div>
+      <div class="row">
+        <div class="mini" data-toast="Attach: note / chapter / image"><svg viewBox="0 0 24 24"><path d="M16 11V6a2 2 0 10-4 0v10a4 4 0 108 0v-3h-2v3a2 2 0 11-4 0V6a4 4 0 118 0v5h2z"/></svg></div>
+        <div class="mini" data-toast="AI mode: Reason / Fast / Deep"><svg viewBox="0 0 24 24"><path d="M12 2l1.9 4.6L18.5 8.5l-4.6 1.9L12 15l-1.9-4.6L5.5 8.5l4.6-1.9L12 2z"/></svg></div>
+        <div class="sp"></div>
+        <button class="send" id="send"><svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- ══ PALETTE ══ -->
+<div class="pal" id="pal">
+  <div class="palbox">
+    <div class="palin">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.49 4.49 0 019.5 14z"/></svg>
+      <input id="palin" placeholder="Search everything, or type a command…" />
+      <kbd style="font-size:10px;color:var(--muted-2);border:1px solid var(--border);border-radius:5px;padding:2px 5px">esc</kbd>
+    </div>
+    <div class="palres">
+      <div class="gr">Notes</div>
+      <div class="pali"><div class="ic" style="background:linear-gradient(135deg,#7C6BF5,#9D8CFF)"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"/></svg></div><span>Egoist awakening — panel breakdown</span><span class="sp"></span><span class="k">↵</span></div>
+      <div class="pali"><div class="ic" style="background:linear-gradient(135deg,#3DD6C0,#5B8DEF)"><svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2z"/></svg></div><span>2026-11-04 · daily</span><span class="sp"></span><span class="k">vault</span></div>
+      <div class="gr">Manga</div>
+      <div class="pali"><div class="ic" style="background:linear-gradient(135deg,#F5A65B,#F26D7D)"><svg viewBox="0 0 24 24"><path d="M4 3h13a3 3 0 013 3v13a2 2 0 01-2 2H4a1 1 0 01-1-1V4a1 1 0 011-1z"/></svg></div><span>Blue Lock — ch. 184</span><span class="sp"></span><span class="k">read</span></div>
+      <div class="gr">Commands</div>
+      <div class="pali"><div class="ic" style="background:linear-gradient(135deg,#7C6BF5,#3DD6C0)"><svg viewBox="0 0 24 24"><path d="M12 2l1.9 4.6L18.5 8.5l-4.6 1.9L12 15l-1.9-4.6L5.5 8.5l4.6-1.9L12 2z"/></svg></div><span>Ask AI: "summarize today's notes"</span><span class="sp"></span><span class="k">AI</span></div>
+      <div class="pali"><div class="ic" style="background:linear-gradient(135deg,#5B8DEF,#7C6BF5)"><svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 00-1 5.83L7.5 14.6A3 3 0 006 18a3 3 0 003 3 3 3 0 002.4-1.2l5.7 1.3A3 3 0 1019 17a3 3 0 00-2.9-3.7l-5.8-1.3A3 3 0 0012 10a3 3 0 001-5.83z"/></svg></div><span>Open graph view</span><span class="sp"></span><span class="k">⌘G</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const $ = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
+
+  // toasts
+  let t;
+  function toast(msg){
+    const el = $('#toast'); el.innerHTML = msg; el.classList.add('on');
+    clearTimeout(t); t = setTimeout(()=>el.classList.remove('on'), 2100);
+  }
+  document.addEventListener('click', e=>{
+    const t = e.target.closest('[data-toast]');
+    if(t){ toast(t.dataset.toast); return; }
+  });
+
+  // nav
+  $$('.item').forEach(it=>it.addEventListener('click',()=>{
+    $$('.item').forEach(x=>x.classList.remove('on')); it.classList.add('on');
+    if(it.dataset.view!=='Dashboard') toast(it.dataset.view + ' — surface not built in this mock');
+  }));
+
+  // palette
+  const pal = $('#pal');
+  function openPal(){ pal.classList.add('on'); setTimeout(()=>$('#palin').focus(),30); }
+  function closePal(){ pal.classList.remove('on'); }
+  $('#openPal').addEventListener('click', openPal);
+  pal.addEventListener('click', e=>{ if(e.target===pal) closePal(); });
+  document.addEventListener('keydown', e=>{
+    if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){ e.preventDefault(); pal.classList.contains('on')?closePal():openPal(); }
+    if(e.key==='Escape') closePal();
+  });
+  $$('.pali').forEach(p=>p.addEventListener('click',()=>{ closePal(); toast('Opened: ' + p.querySelector('span').textContent); }));
+
+  // chat
+  const chat = $('#chat');
+  function push(user, reply, ref){
+    const me = document.createElement('div'); me.className='msg me';
+    me.innerHTML = `<div class="av2">TR</div><div class="bub">${user}</div>`;
+    chat.appendChild(me);
+    const th = document.createElement('div'); th.className='msg ai';
+    th.innerHTML = `<div class="av2">AI</div><div class="bub typing"><i></i><i></i><i></i></div>`;
+    chat.appendChild(th);
+    chat.scrollTop = chat.scrollHeight;
+    setTimeout(()=>{
+      th.innerHTML = `<div class="av2">AI</div><div class="bub">${reply}${ref?`<div class="ref"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"/></svg>${ref}</div>`:''}</div>`;
+      chat.scrollTop = chat.scrollHeight;
+    }, 1100);
+    chat.scrollTop = chat.scrollHeight;
+  }
+  const ph = $('#ph');
+  ph.addEventListener('click', ()=>{ ph.textContent=''; ph.contentEditable='true'; ph.focus(); });
+  ph.addEventListener('keydown', e=>{
+    if(e.key==='Enter' && !e.shiftKey){
+      e.preventDefault();
+      const txt = ph.innerText.trim();
+      if(!txt) return;
+      push(txt, `Found 4 relevant items in your vault. I linked <b>2 notes</b> and drafted a summary of the latest chapter.`, 'Open summary');
+      ph.innerText='';
+    }
+  });
+  $('#send').addEventListener('click', ()=>{
+    const txt = ph.innerText.trim();
+    if(!txt){ toast('Type a message first'); return; }
+    push(txt, `Done — I updated your daily note and linked <b>3 related notes</b>.`, 'Open daily note');
+    ph.innerText='';
+  });
+</script>
+</body>
+</html>
