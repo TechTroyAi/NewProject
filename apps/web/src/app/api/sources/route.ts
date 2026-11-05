@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { languageLabel } from '@shelf/shared'
 import { getSourceCatalog } from '@/lib/sources/catalog'
 import { getConnectedSources } from '@/lib/sources-data'
+import { safeInt } from '@shelf/shared'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'

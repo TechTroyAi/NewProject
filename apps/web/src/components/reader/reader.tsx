@@ -58,19 +58,27 @@ export function Reader({
   savedMaxPageRead = 0,
   splitNote = null,
   linkedNotes = [],
+  initialMode = 'strip',
+  initialRtl = false,
+  initialSpread = false,
+  initialScale = 1,
 }: {
   item: ReaderItem
   initialPage: number
   savedMaxPageRead?: number
   splitNote?: SplitNote | null
   linkedNotes?: { id: string; title: string; page_ref: number | null }[]
+  initialMode?: Mode
+  initialRtl?: boolean
+  initialSpread?: boolean
+  initialScale?: number
 }) {
   const router = useRouter()
   const params = useSearchParams()
-  const [mode, setMode] = React.useState<Mode>('strip')
-  const [rtl, setRtl] = React.useState(false)
-  const [scale, setScale] = React.useState(1)
-  const [spread, setSpread] = React.useState(false)
+  const [mode, setMode] = React.useState<Mode>(initialMode)
+  const [rtl, setRtl] = React.useState(initialRtl)
+  const [scale, setScale] = React.useState(initialScale)
+  const [spread, setSpread] = React.useState(initialSpread)
   const [page, setPage] = React.useState(initialPage)
   const [showNotes, setShowNotes] = React.useState(false)
   const [chrome, setChrome] = React.useState(true)
@@ -126,6 +134,35 @@ export function Reader({
       router.replace(`/app/read/${item.id}?p=${clamped}`, { scroll: false })
     },
     [pageCount, persist, router, item.id],
+  )
+
+  /* ── remember the reader preferences ────────────────────────── */
+  // The mode, the direction, the spread and the zoom are the user's
+  // reading preferences, so they are written back to the profile.
+  const savePrefs = React.useRef<ReturnType<typeof setTimeout>>()
+  const rememberPrefs = React.useCallback(
+    (next: { mode?: Mode; rtl?: boolean; spread?: boolean; scale?: number }) => {
+      clearTimeout(savePrefs.current)
+      savePrefs.current = setTimeout(() => {
+        void fetch('/api/settings/profile', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            settings: {
+              reader: {
+                mode: next.mode ?? mode,
+                rtl: next.rtl ?? rtl,
+                spread: next.spread ?? spread,
+                scale: next.scale ?? scale,
+              },
+            },
+          }),
+        }).catch(() => {
+          /* a preference that did not save is not worth interrupting for */
+        })
+      }, 800)
+    },
+    [mode, rtl, spread, scale],
   )
 
   /* ── hotkeys ───────────────────────────────────────────────── */
@@ -373,7 +410,10 @@ export function Reader({
         <div className="flex items-center gap-1">
           <Tooltip label="Long strip">
             <button
-              onClick={() => setMode('strip')}
+              onClick={() => {
+                setMode('strip')
+                rememberPrefs({ mode: 'strip' })
+              }}
               className={cn(
                 'grid size-7 place-items-center rounded-lg transition',
                 mode === 'strip' ? 'bg-accent/15 text-accent' : 'text-faint hover:bg-raised hover:text-fg',
@@ -384,7 +424,10 @@ export function Reader({
           </Tooltip>
           <Tooltip label="Single page">
             <button
-              onClick={() => setMode('paged')}
+              onClick={() => {
+                setMode('paged')
+                rememberPrefs({ mode: 'paged' })
+              }}
               className={cn(
                 'grid size-7 place-items-center rounded-lg transition',
                 mode === 'paged' ? 'bg-accent/15 text-accent' : 'text-faint hover:bg-raised hover:text-fg',
@@ -395,7 +438,12 @@ export function Reader({
           </Tooltip>
           <Tooltip label={rtl ? 'Right to left' : 'Left to right'}>
             <button
-              onClick={() => setRtl((v) => !v)}
+              onClick={() => {
+                setRtl((v) => {
+                  rememberPrefs({ rtl: !v })
+                  return !v
+                })
+              }}
               className={cn(
                 'grid size-7 place-items-center rounded-lg transition',
                 rtl ? 'bg-accent/15 text-accent' : 'text-faint hover:bg-raised hover:text-fg',
@@ -406,7 +454,13 @@ export function Reader({
           </Tooltip>
           <Tooltip label="Zoom out">
             <button
-              onClick={() => setScale((s) => Math.max(0.5, s - 0.15))}
+              onClick={() => {
+              setScale((s) => {
+                const next = Math.max(0.5, s - 0.15)
+                rememberPrefs({ scale: next })
+                return next
+              })
+            }}
               className="grid size-7 place-items-center rounded-lg text-faint transition hover:bg-raised hover:text-fg"
             >
               <Minus className="size-3.5" />
@@ -415,7 +469,13 @@ export function Reader({
           <span className="w-9 text-center text-[11px] tabular-nums text-faint">{Math.round(scale * 100)}%</span>
           <Tooltip label="Zoom in">
             <button
-              onClick={() => setScale((s) => Math.min(2.5, s + 0.15))}
+              onClick={() => {
+              setScale((s) => {
+                const next = Math.min(2.5, s + 0.15)
+                rememberPrefs({ scale: next })
+                return next
+              })
+            }}
               className="grid size-7 place-items-center rounded-lg text-faint transition hover:bg-raised hover:text-fg"
             >
               <Plus className="size-3.5" />
@@ -538,7 +598,12 @@ export function Reader({
       {mode === 'paged' && (
         <Tooltip label={spread ? 'Single page' : 'Two pages side by side'}>
           <button
-            onClick={() => setSpread((v) => !v)}
+            onClick={() => {
+              setSpread((v) => {
+                rememberPrefs({ spread: !v })
+                return !v
+              })
+            }}
             className={cn(
               'absolute bottom-3 right-3 z-20 grid size-8 place-items-center rounded-lg border border-line/10 bg-bg/85 text-faint backdrop-blur-xl transition hover:text-fg',
               spread && 'border-accent/40 text-accent',

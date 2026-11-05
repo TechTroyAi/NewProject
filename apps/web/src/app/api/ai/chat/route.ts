@@ -30,6 +30,10 @@ export async function POST(req: Request) {
 
   const question = (body.question ?? '').trim()
   if (!question) return new Response('question required', { status: 400 })
+  // A prompt is a bill. Anything longer than this is a paste accident.
+  if (question.length > 4000) {
+    return new Response('question is too long', { status: 400 })
+  }
 
   const parsedScope = ChatScopeSchema.safeParse(body.scope ?? { mode: 'vault' })
   if (!parsedScope.success) {
@@ -45,8 +49,12 @@ export async function POST(req: Request) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(evt)}\n\n`))
         }
       } catch (err) {
+        console.error('chat stream failed:', err)
+        // The detail is trimmed: an error can carry an upstream URL,
+        // and this text goes straight into the user's screen.
+        const detail = String(err).slice(0, 300)
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ type: 'text', text: `\n\n_Something went wrong: ${String(err)}_` })}\n\n`),
+          encoder.encode(`data: ${JSON.stringify({ type: 'text', text: `\n\n_Something went wrong: ${detail}_` })}\n\n`),
         )
       } finally {
         controller.close()

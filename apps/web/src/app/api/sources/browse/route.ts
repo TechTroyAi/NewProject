@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireUser } from '@/lib/api'
 import { browseSource } from '@/lib/sources/providers/registry'
 import { resolveConnected } from '@/lib/sources-data'
+import { safeInt } from '@shelf/shared'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'

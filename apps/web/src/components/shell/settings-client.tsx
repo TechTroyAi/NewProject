@@ -2,7 +2,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Check, Database, Download, Keyboard, Sparkles, Trash2 } from 'lucide-react'
+import { Check, Database, Download, Keyboard, Loader2, Sparkles, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import { HOTKEY_HINTS } from '@/lib/hotkeys'
 import { ApiKeyField } from './api-key-field'
 import { AI_PROVIDER_IDS, AI_PROVIDER_LABELS, type AiProviderId } from '@shelf/shared'
 import { IS_DEMO } from '@/lib/db'
+import { toast } from 'sonner'
 
 const SECTIONS = [
   { slug: 'general', label: 'General' },
@@ -29,9 +30,15 @@ const SECTIONS = [
 export function SettingsClient({
   section,
   provider,
+  displayName = '',
+  dailyFormat = 'YYYY-MM-DD · daily',
+  reader = {},
 }: {
   section: string
   provider: { id: AiProviderId | null; label: string; model: string | null; embeddingModel: string | null }
+  displayName?: string
+  dailyFormat?: string
+  reader?: { mode?: 'strip' | 'paged'; rtl?: boolean; spread?: boolean; scale?: number }
 }) {
   const router = useRouter()
   const { theme, accent, setTheme, setAccent } = useTheme()
@@ -185,51 +192,16 @@ export function SettingsClient({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <Label>Display name</Label>
-                <Input defaultValue="Troy" className="mt-1.5 max-w-xs" />
-              </div>
-              <div>
-                <Label>Daily note format</Label>
-                <Input defaultValue="YYYY-MM-DD · daily" className="mt-1.5 max-w-xs font-mono" />
-              </div>
-              <Button size="sm">Save</Button>
-            </CardContent>
-          </Card>
+          <ProfileCard
+            displayName={displayName}
+            dailyFormat={dailyFormat}
+            onSaved={() => router.refresh()}
+          />
         </div>
       )}
 
       {section === 'reader' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Reader</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {[
-              { label: 'Default mode', desc: 'Long strip or single page', value: 'Long strip' },
-              { label: 'Right-to-left reading', desc: 'For manga that reads right to left', value: false },
-              { label: 'Double-page spreads', desc: 'Show two pages side by side', value: false },
-              { label: 'Preload next pages', desc: 'Keep the next three pages in memory', value: true },
-            ].map((row, i) => (
-              <div key={row.label} className="flex items-center gap-4 border-b border-line/6 pb-4 last:border-0 last:pb-0">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium">{row.label}</p>
-                  <p className="mt-0.5 text-[12px] text-muted">{row.desc}</p>
-                </div>
-                {typeof row.value === 'boolean' ? (
-                  <Switch checked={row.value} onCheckedChange={() => {}} />
-                ) : (
-                  <span className="shrink-0 text-[12.5px] text-muted">{row.value}</span>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <ReaderCard reader={reader} onSaved={() => router.refresh()} />
       )}
 
       {section === 'ai' && (
@@ -413,5 +385,183 @@ export function SettingsClient({
         </Card>
       )}
     </div>
+  )
+}
+
+/* ─── Profile card ─────────────────────────────────────────────── */
+
+function ProfileCard({
+  displayName: initialName,
+  dailyFormat: initialFormat,
+  onSaved,
+}: {
+  displayName: string
+  dailyFormat: string
+  onSaved: () => void
+}) {
+  const [name, setName] = React.useState(initialName)
+  const [format, setFormat] = React.useState(initialFormat)
+  const [busy, setBusy] = React.useState(false)
+  const [saved, setSaved] = React.useState(false)
+
+  async function save() {
+    setBusy(true)
+    setSaved(false)
+    try {
+      const res = await fetch('/api/settings/profile', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          display_name: name.trim() || 'there',
+          settings: { notes: { dailyFormat: format } },
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `could not save (${res.status})`)
+      }
+      setSaved(true)
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Profile</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <Label>Display name</Label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your name"
+            className="mt-1.5 max-w-xs"
+          />
+        </div>
+        <div>
+          <Label>Daily note format</Label>
+          <Input
+            value={format}
+            onChange={(e) => setFormat(e.target.value)}
+            placeholder="YYYY-MM-DD · daily"
+            className="mt-1.5 max-w-xs font-mono"
+          />
+        </div>
+        <Button size="sm" onClick={() => void save()} disabled={busy}>
+          {busy ? <Loader2 className="animate-spin" /> : null}
+          {saved ? 'Saved' : 'Save'}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ─── Reader card ──────────────────────────────────────────────── */
+
+function ReaderCard({
+  reader,
+  onSaved,
+}: {
+  reader: { mode?: 'strip' | 'paged'; rtl?: boolean; spread?: boolean; scale?: number }
+  onSaved: () => void
+}) {
+  const [mode, setMode] = React.useState<'strip' | 'paged'>(reader.mode ?? 'strip')
+  const [rtl, setRtl] = React.useState(reader.rtl ?? false)
+  const [spread, setSpread] = React.useState(reader.spread ?? false)
+  const [busy, setBusy] = React.useState(false)
+
+  async function save(next: Partial<{ mode: 'strip' | 'paged'; rtl: boolean; spread: boolean }>) {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/settings/profile', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          settings: {
+            reader: {
+              mode: next.mode ?? mode,
+              rtl: next.rtl ?? rtl,
+              spread: next.spread ?? spread,
+            },
+          },
+        }),
+      })
+      if (!res.ok) throw new Error(`could not save (${res.status})`)
+      toast.success('Reader settings saved.')
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Reader</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-4 border-b border-line/6 pb-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">Default mode</p>
+            <p className="mt-0.5 text-[12px] text-muted">Long strip or single page</p>
+          </div>
+          <div className="flex shrink-0 overflow-hidden rounded-xl border border-line/10">
+            {(['strip', 'paged'] as const).map((m) => (
+              <button
+                key={m}
+                disabled={busy}
+                onClick={() => {
+                  setMode(m)
+                  void save({ mode: m })
+                }}
+                className={cn(
+                  'px-3 py-1.5 text-[12px] capitalize transition',
+                  mode === m ? 'bg-accent/15 text-accent' : 'text-muted hover:text-fg',
+                )}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {[
+          {
+            label: 'Right-to-left reading',
+            desc: 'For manga that reads right to left',
+            value: rtl,
+            set: (v: boolean) => {
+              setRtl(v)
+              void save({ rtl: v })
+            },
+          },
+          {
+            label: 'Double-page spreads',
+            desc: 'Show two pages side by side',
+            value: spread,
+            set: (v: boolean) => {
+              setSpread(v)
+              void save({ spread: v })
+            },
+          },
+        ].map((row) => (
+          <div key={row.label} className="flex items-center gap-4 border-b border-line/6 pb-4 last:border-0 last:pb-0">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-medium">{row.label}</p>
+              <p className="mt-0.5 text-[12px] text-muted">{row.desc}</p>
+            </div>
+            <Switch checked={row.value} onCheckedChange={row.set} />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   )
 }

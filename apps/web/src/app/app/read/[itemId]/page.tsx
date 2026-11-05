@@ -6,10 +6,12 @@ import {
   getNoteById,
   getNotesForItem,
   getPagesForItem,
+  getProfile,
   getProgressMap,
   getSeriesList,
 } from '@/lib/data'
 import { resolvePageImage } from '@/lib/ai'
+import type { ProfileSettings } from '@shelf/shared'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +29,10 @@ export default async function ReadPage({
   const series = (await getSeriesList()).find((s) => s.id === item.series_id)
   const progress = (await getProgressMap()).get(params.itemId)
   const linkedNotes = await getNotesForItem(params.itemId)
+  // The reader's preferences live in the profile, so the shelf opens
+  // the way the user left it.
+  const profile = await getProfile()
+  const readerPrefs = (profile?.settings as ProfileSettings | undefined)?.reader ?? {}
 
   const readerPages = pages.map((p) => ({
     idx: p.idx,
@@ -67,6 +73,10 @@ export default async function ReadPage({
             : null
         }
         linkedNotes={linkedNotes.map((n) => ({ id: n.id, title: n.title, page_ref: n.page_ref }))}
+        initialMode={readerPrefs.mode ?? 'strip'}
+        initialRtl={readerPrefs.rtl ?? false}
+        initialSpread={readerPrefs.spread ?? false}
+        initialScale={readerPrefs.scale ?? 1}
       />
     </Suspense>
   )

@@ -12,6 +12,8 @@ import {
   UploadCompleteSchema,
   toPgVector,
   PIPELINE_STAGES,
+  safeInt,
+  isUuid,
 } from '@shelf/shared'
 
 import { resolveWikilinks } from '../apps/web/src/lib/wikilinks.ts'
@@ -452,5 +454,49 @@ describe('PIPELINE_STAGES', () => {
 
   test('every stage is unique', () => {
     assert.equal(new Set(PIPELINE_STAGES).size, PIPELINE_STAGES.length)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   Reading numbers and ids out of user input
+   ══════════════════════════════════════════════════════════════ */
+
+describe('safeInt', () => {
+  test('reads a number', () => {
+    assert.equal(safeInt('42', 0), 42)
+    assert.equal(safeInt(42, 0), 42)
+  })
+
+  test('falls back instead of returning NaN', () => {
+    // A NaN that reaches slice() returns an empty list.
+    assert.equal(safeInt('abc', 20), 20)
+    assert.equal(safeInt(undefined, 20), 20)
+    assert.equal(safeInt(null, 20), 20)
+    assert.equal(safeInt('', 20), 20)
+    assert.equal(safeInt('12abc', 20), 12)
+  })
+
+  test('clamps to the range', () => {
+    assert.equal(safeInt('9999', 1, 1, 100), 100)
+    assert.equal(safeInt('-5', 1, 1, 100), 1)
+  })
+
+  test('truncates a fraction', () => {
+    assert.equal(safeInt('3.7', 0), 3)
+  })
+})
+
+describe('isUuid', () => {
+  test('accepts a uuid', () => {
+    assert.equal(isUuid('00000000-0000-4000-8000-000000000001'), true)
+    assert.equal(isUuid('0F1E2D3C-4B5A-6789-ABCD-EF0123456789'), true)
+  })
+
+  test('rejects anything else', () => {
+    assert.equal(isUuid('not-a-uuid'), false)
+    assert.equal(isUuid('i-bl-184'), false)
+    assert.equal(isUuid(''), false)
+    assert.equal(isUuid(null), false)
+    assert.equal(isUuid(undefined), false)
   })
 })

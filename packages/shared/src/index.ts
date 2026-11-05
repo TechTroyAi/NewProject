@@ -23,6 +23,23 @@ export const PIPELINE_STAGES = [
 export type PipelineStage = (typeof PIPELINE_STAGES)[number]
 
 /**
+ * Read an integer out of a query string.
+ *
+ * `Number('abc')` is NaN, and a NaN that reaches a `slice()` quietly
+ * returns an empty list instead of an error.
+ */
+export function safeInt(
+  value: string | number | null | undefined,
+  fallback: number,
+  min = Number.MIN_SAFE_INTEGER,
+  max = Number.MAX_SAFE_INTEGER,
+): number {
+  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, Math.trunc(n)))
+}
+
+/**
  * Whether a string looks like a UUID.
  *
  * Route parameters that end up in a `uuid` column are checked with
@@ -85,6 +102,10 @@ export interface ProfileSettings {
   }
   /** The dashboard grid — where each widget sits. */
   dashboard?: DashboardLayoutItem[]
+  notes?: {
+    /** The title template for a daily note. */
+    dailyFormat?: string
+  }
 }
 
 /**

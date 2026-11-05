@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireUser } from '@/lib/api'
 import { getQuizQueue } from '@/lib/data'
+import { safeInt } from '@shelf/shared'
 
 export const dynamic = 'force-dynamic'
 

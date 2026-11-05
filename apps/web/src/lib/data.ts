@@ -87,14 +87,14 @@ export async function getProfile() {
 }
 
 /**
- * Save the dashboard layout.
+ * Merge a change into `profiles.settings`.
  *
- * The positions live in `profiles.settings.dashboard`, so they travel
- * with the user. Only the `dashboard` key is touched — the theme and
- * the reader settings in the same blob stay as they are.
+ * The settings live in one JSON blob, so a partial update has to read
+ * the current value first — otherwise saving the reader settings would
+ * wipe the dashboard layout.
  */
-export async function saveDashboardLayout(
-  layout: { i: string; x: number; y: number; w: number; h: number; minW?: number; minH?: number }[],
+export async function saveProfileSettings(
+  patch: Record<string, unknown>,
 ): Promise<void> {
   if (IS_DEMO) return
   const userId = await getUserId()
@@ -109,7 +109,32 @@ export async function saveDashboardLayout(
   const settings = (profile?.settings ?? {}) as Record<string, unknown>
   const { error } = await (await db())
     .from('profiles')
-    .update({ settings: { ...settings, dashboard: layout } })
+    .update({ settings: { ...settings, ...patch } })
+    .eq('id', userId)
+  if (error) throw error
+}
+
+/**
+ * Save the dashboard layout.
+ *
+ * The positions live in `profiles.settings.dashboard`, so they travel
+ * with the user. Only the `dashboard` key is touched — the theme and
+ * the reader settings in the same blob stay as they are.
+ */
+export async function saveDashboardLayout(
+  layout: { i: string; x: number; y: number; w: number; h: number; minW?: number; minH?: number }[],
+): Promise<void> {
+  await saveProfileSettings({ dashboard: layout })
+}
+
+/** The display name shown in the greeting. */
+export async function saveDisplayName(name: string): Promise<void> {
+  if (IS_DEMO) return
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+  const { error } = await (await db())
+    .from('profiles')
+    .update({ display_name: name.slice(0, 80) })
     .eq('id', userId)
   if (error) throw error
 }

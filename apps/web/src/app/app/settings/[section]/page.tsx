@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { SettingsClient } from '@/components/shell/settings-client'
-import { describeAiProvider } from '@shelf/shared'
+import { describeAiProvider, type ProfileSettings } from '@shelf/shared'
+import { getProfile } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,5 +16,15 @@ export default async function SettingsPage({ params }: { params: { section: stri
   // The active provider is read from the environment on the server —
   // the client never sees a key.
   const provider = describeAiProvider()
-  return <SettingsClient section={params.section} provider={provider} />
+  const profile = await getProfile()
+  const settings = (profile?.settings ?? {}) as ProfileSettings
+  return (
+    <SettingsClient
+      section={params.section}
+      provider={provider}
+      displayName={profile?.display_name ?? ''}
+      dailyFormat={settings.notes?.dailyFormat ?? 'YYYY-MM-DD · daily'}
+      reader={settings.reader ?? {}}
+    />
+  )
 }

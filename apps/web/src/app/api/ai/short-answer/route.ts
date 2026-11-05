@@ -23,6 +23,18 @@ export async function POST(req: Request) {
   if (!body?.question || !body?.reference) {
     return NextResponse.json({ error: 'question and reference required' }, { status: 400 })
   }
-  const grade = await gradeShortAnswer(body.question, body.reference, String(body.answer ?? ''))
-  return NextResponse.json({ grade }, { headers: rateLimitHeaders(limited) })
+  // Grading is a paid model call — a runaway prompt is a runaway bill.
+  const question = String(body.question).slice(0, 2000)
+  const reference = String(body.reference).slice(0, 8000)
+  const answer = String(body.answer ?? '').slice(0, 4000)
+  try {
+    const grade = await gradeShortAnswer(question, reference, answer)
+    return NextResponse.json({ grade }, { headers: rateLimitHeaders(limited) })
+  } catch (err) {
+    console.error('short answer grading failed:', err)
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500, headers: rateLimitHeaders(limited) },
+    )
+  }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { mockPageImage } from '@/lib/demo'
+import { safeInt } from '@shelf/shared'
 
 export const dynamic = 'force-dynamic'
 
