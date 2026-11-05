@@ -14,7 +14,12 @@ export async function matchSeries(
 ): Promise<{ seriesId: string | null; confidence: number; candidates: { id: string; title: string; score: number }[] }> {
   const { data: series } = await sb.from('series').select('id, title, kind').eq('user_id', userId)
 
+  // A book and a course can share a title; they belong in different
+  // series, so only compare against the kind the item actually is.
+  const wanted = kindOfItem(kind)
+
   const candidates = (series ?? [])
+    .filter((s) => s.kind === wanted || s.kind === 'mixed')
     .map((s) => ({ id: s.id, title: s.title, score: similarity(s.title, title) }))
     .filter((c) => c.score > 0.4)
     .sort((a, b) => b.score - a.score)
@@ -25,6 +30,21 @@ export async function matchSeries(
   const best = candidates[0]
   if (best.score >= 0.8) return { seriesId: best.id, confidence: best.score, candidates }
   return { seriesId: null, confidence: best.score, candidates }
+}
+
+/** The series kind an item of this file type belongs to. */
+export function kindOfItem(type: string): 'manga' | 'book' | 'course' {
+  switch (type) {
+    case 'cbz':
+    case 'manga':
+      return 'manga'
+    case 'pptx':
+    case 'docx':
+    case 'course':
+      return 'course'
+    default:
+      return 'book'
+  }
 }
 
 /**

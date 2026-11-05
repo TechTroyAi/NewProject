@@ -5,6 +5,8 @@ import { safeFileName, MAX_UPLOAD_BYTES, interleaveBySeries } from '@shelf/share
 import { sanitizeUntrustedHtml, htmlToText } from '../apps/worker/src/stages/sanitize-html.ts'
 import { sanitizeHtml } from '../apps/web/src/lib/markdown.ts'
 import { createZip, safeEntryName } from '../apps/web/src/lib/zip.ts'
+import { Sha256, sha256Hex } from '../apps/web/src/lib/sha256.ts'
+import { createHash } from 'node:crypto'
 import { ratingToGrade } from '../apps/web/src/lib/fsrs.ts'
 import { Rating } from 'ts-fsrs'
 import type { Card } from '@shelf/shared'
@@ -246,5 +248,42 @@ describe('createZip', () => {
     assert.equal(safeEntryName('.hidden'), 'hidden')
     assert.equal(safeEntryName(''), 'untitled')
     assert.ok(!safeEntryName('a/b').includes('/'))
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   SHA-256
+   ══════════════════════════════════════════════════════════════ */
+
+describe('Sha256', () => {
+  test('matches Node crypto for a single buffer', () => {
+    const data = Buffer.from('The quick brown fox jumps over the lazy dog')
+    assert.equal(sha256Hex(new Uint8Array(data)), createHash('sha256').update(data).digest('hex'))
+  })
+
+  test('matches Node crypto when absorbed in chunks', () => {
+    const data = Buffer.from('x'.repeat(100_000))
+    const sha = new Sha256()
+    // Chunk sizes around the 64-byte block boundary.
+    for (let i = 0; i < data.length; i += 997) {
+      sha.absorb(new Uint8Array(data.subarray(i, i + 997)))
+    }
+    assert.equal(sha.finish(), createHash('sha256').update(data).digest('hex'))
+  })
+
+  test('matches Node crypto for the empty input', () => {
+    assert.equal(
+      sha256Hex(new Uint8Array(0)),
+      createHash('sha256').update(Buffer.alloc(0)).digest('hex'),
+    )
+  })
+
+  test('matches Node crypto across a block boundary', () => {
+    for (const length of [55, 56, 57, 63, 64, 65, 119, 120, 128]) {
+      const data = Buffer.alloc(length, 0x61)
+      const sha = new Sha256()
+      sha.absorb(new Uint8Array(data))
+      assert.equal(sha.finish(), createHash('sha256').update(data).digest('hex'), `length ${length}`)
+    }
   })
 })

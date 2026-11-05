@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getItemById, getNotes, getPagesForItem, getProgressMap, getSeriesList } from '@/lib/data'
 import { mockCover } from '@/lib/demo'
+import { mediaUrl } from '@/lib/media'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,7 +37,7 @@ export default async function ItemPage({ params }: { params: { itemId: string } 
         <div className="w-32 shrink-0 overflow-hidden rounded-xl border border-line/10 shadow-card">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={mockCover(item.title, item.type === 'cbz' ? 'manga' : 'book')}
+            src={mediaUrl(item.cover_path) ?? mockCover(item.title, item.type === 'cbz' ? 'manga' : 'book')}
             alt={item.title}
             className="aspect-[3/4.2] w-full object-cover"
           />
@@ -51,6 +52,17 @@ export default async function ItemPage({ params }: { params: { itemId: string } 
             {item.page_count} pages · {s?.title ?? 'Unsorted'}
             {p && !p.finished ? ` · ${Math.round(p.percent)}% read` : ''}
           </p>
+
+          {item.speaker_notes && (
+            <div className="mt-4 rounded-xl border border-line/10 bg-raised/40 p-4">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[.1em] text-faint">
+                Speaker notes
+              </p>
+              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-relaxed text-muted">
+                {item.speaker_notes}
+              </pre>
+            </div>
+          )}
 
           {item.ai_summary && (
             <p className="mt-4 max-w-2xl text-[13.5px] leading-relaxed text-fg/85">{item.ai_summary}</p>

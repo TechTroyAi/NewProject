@@ -512,6 +512,11 @@ begin
 end;
 $$;
 
+-- ─── items.speaker_notes ──────────────────────────────────────
+-- Speaker notes from a PPTX. They are not part of the rendered
+-- slides, so they were being thrown away.
+alter table items add column if not exists speaker_notes text;
+
 -- ─── cards.learning_steps ─────────────────────────────────────
 -- ts-fsrs v5 tracks *where* in the learning ladder a card is. The
 -- application was hard-coding it to 0 on every read, which meant a

@@ -82,6 +82,8 @@ export interface Item {
   ai_summary: string | null
   ai_tags: string[]
   key_terms: KeyTerm[]
+  /** Speaker notes, when the item is a slide deck. */
+  speaker_notes?: string | null
   created_at: string
 }
 

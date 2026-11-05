@@ -60,10 +60,21 @@ function getWorker(): Worker {
   return worker
 }
 
+/**
+ * Hash a file in the worker.
+ *
+ * A whole folder is uploaded at once, so several files are hashed
+ * concurrently against the same worker. Every request carries an id
+ * and only its own reply is accepted — without that, the first reply
+ * would resolve every pending promise with the wrong hash and the
+ * rest would never settle at all.
+ */
 function hashFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const w = getWorker()
+    const id = `h-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
     const onMessage = (e: MessageEvent) => {
+      if (e.data?.id !== id) return
       if (e.data.type === 'done') {
         w.removeEventListener('message', onMessage)
         resolve(e.data.hash)
@@ -73,7 +84,7 @@ function hashFile(file: File): Promise<string> {
       }
     }
     w.addEventListener('message', onMessage)
-    w.postMessage({ file })
+    w.postMessage({ id, file })
   })
 }
 

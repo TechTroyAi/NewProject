@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sniff } from './stages/sniff.js'
 import { convert, thumbnails, webp } from './stages/convert.js'
-import { extractText } from './stages/ocr.js'
+import { extractText, extractSpeakerNotes } from './stages/ocr.js'
 import { chunkPages } from './stages/chunk.js'
 import { embedChunks } from './stages/embed.js'
 import { summarize } from './stages/summarize.js'
@@ -156,9 +156,19 @@ async function runConvert(job: Job) {
     const coverPath = await upload(`thumbs/${job.user_id}/${job.item_id}/cover.webp`, cover, 'image/webp')
 
     await sb.from('pages').insert(rows)
+
+    // Slide decks carry speaker notes that never appear on the slides.
+    const speakerNotes =
+      sniffed.type === 'pptx' ? extractSpeakerNotes(local) : ''
+
     await sb
       .from('items')
-      .update({ page_count: pages.length, cover_path: coverPath, status: 'ready' })
+      .update({
+        page_count: pages.length,
+        cover_path: coverPath,
+        status: 'ready',
+        ...(speakerNotes ? { speaker_notes: speakerNotes } : {}),
+      })
       .eq('id', job.item_id)
 
     await finishJob(job, { status: 'done', progress: 100 })

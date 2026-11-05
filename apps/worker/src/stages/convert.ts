@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { htmlToText, sanitizeUntrustedHtml } from './sanitize-html.js'
+import { pdfPageText } from './ocr.js'
+import { naturalCompare } from '../util/natural.js'
 import type { ConvertedPage, SniffResult } from '../types.js'
 
 const exec = promisify(execFile)
@@ -32,31 +34,7 @@ export function guardArchive(zip: AdmZip): { ok: boolean; reason?: string } {
 
 /* ─── natural sort ───────────────────────────────────────────── */
 
-/** `page2` sorts before `page10`. Numeric-aware, case-insensitive. */
-export function naturalCompare(a: string, b: string): number {
-  const ax: (string | number)[] = []
-  const bx: (string | number)[] = []
-  a.replace(/(\d+)|(\D+)/g, (_, d, s) => {
-    ax.push(d ? Number(d) : s.toLowerCase())
-    return ''
-  })
-  b.replace(/(\d+)|(\D+)/g, (_, d, s) => {
-    bx.push(d ? Number(d) : s.toLowerCase())
-    return ''
-  })
-  while (ax.length && bx.length) {
-    const x = ax.shift()!
-    const y = bx.shift()!
-    if (typeof x === 'number' && typeof y === 'number') {
-      if (x !== y) return x - y
-    } else {
-      const sx = String(x)
-      const sy = String(y)
-      if (sx !== sy) return sx < sy ? -1 : 1
-    }
-  }
-  return ax.length - bx.length
-}
+export { naturalCompare } from '../util/natural.js'
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i
 
@@ -113,16 +91,20 @@ async function convertArchive(path: string) {
 async function convertPdf(path: string) {
   const dir = await mkdtemp(join(tmpdir(), 'shelf-pdf-'))
   try {
-    // pdftoppm renders each page to PPM; we then transcode to WebP.
+    // pdftoppm renders each page to PNG; we then transcode to WebP.
     await exec('pdftoppm', ['-r', '150', '-png', path, join(dir, 'page')], { timeout: 120_000 })
     const files = (await readdir(dir)).filter((f) => f.endsWith('.png')).sort((a, b) => naturalCompare(a, b))
     const pages: ConvertedPage[] = []
+    const texts: string[] = []
     for (const [idx, f] of files.entries()) {
       const buffer = await readFile(join(dir, f))
       const meta = await sharp(buffer).metadata()
       pages.push({ idx, buffer, width: meta.width ?? 0, height: meta.height ?? 0 })
+      // The text layer, when the PDF has one. A scanned PDF returns
+      // nothing here and those pages go through OCR instead.
+      texts.push(await pdfPageText(path, idx + 1))
     }
-    return { pages, texts: pages.map(() => '') }
+    return { pages, texts }
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

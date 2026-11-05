@@ -1,8 +1,7 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { promisify } from 'node:util'
+import AdmZip from 'adm-zip'
+import { naturalCompare } from '../util/natural.js'
 
 const exec = promisify(execFile)
 
@@ -17,36 +16,71 @@ const MIN_CHARS_FOR_TEXT = 20
  * looks like it has text worth reading.
  */
 export async function extractText(pageImagePath: string): Promise<string> {
-  // 1. Embedded text layer (PDF).
+  // The page has already been rasterised to an image by the convert
+  // stage, so the only way to get text out of it is OCR. (PDFs get
+  // their text layer extracted during conversion, where the original
+  // file is still around.)
   try {
-    const { stdout } = await exec('pdftotext', ['-f', '1', '-l', '1', '-layout', pageImagePath, '-'], {
-      timeout: 30_000,
-    })
-    const text = stdout.trim()
-    if (text.length >= MIN_CHARS_FOR_TEXT) return text
-  } catch {
-    /* not a PDF, or pdftotext unavailable */
-  }
-
-  // 2. OCR fallback.
-  try {
-    const dir = await mkdtemp(join(tmpdir(), 'shelf-ocr-'))
-    try {
-      const { stdout } = await exec(
-        'tesseract',
-        [pageImagePath, 'stdout', '-l', 'eng', '--psm', '6'],
-        { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 },
-      )
-      return stdout.trim()
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
+    const { stdout } = await exec(
+      'tesseract',
+      [pageImagePath, 'stdout', '-l', 'eng', '--psm', '6'],
+      { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 },
+    )
+    return stdout.trim()
   } catch {
     return ''
   }
 }
 
-/** Speaker notes from a PPTX, if present. */
-export async function extractSpeakerNotes(): Promise<string | null> {
-  return null
+/**
+ * The text layer of a single page of a PDF.
+ *
+ * Returns an empty string for a scanned PDF, which has no text layer
+ * — those pages go through OCR instead.
+ */
+export async function pdfPageText(pdfPath: string, pageNumber: number): Promise<string> {
+  try {
+    const { stdout } = await exec(
+      'pdftotext',
+      ['-f', String(pageNumber), '-l', String(pageNumber), '-layout', pdfPath, '-'],
+      { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
+    )
+    const text = stdout.trim()
+    return text.length >= MIN_CHARS_FOR_TEXT ? text : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Speaker notes from a PPTX.
+ *
+ * PowerPoint keeps them in `ppt/notesSlides/notesSlideN.xml` inside
+ * the OOXML package. They are not part of the rendered slides, so
+ * they have to be read out of the archive directly.
+ */
+export function extractSpeakerNotes(pptxPath: string): string {
+  try {
+    const zip = new AdmZip(pptxPath)
+    const notes = zip
+      .getEntries()
+      .filter((e) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/i.test(e.entryName))
+      .sort((a, b) => naturalCompare(a.entryName, b.entryName))
+      .map((e) => e.getData().toString('utf8'))
+    if (!notes.length) return ''
+    const blocks = notes.map((xml, i) => {
+      const text = xml
+        .replace(/<a:br\/>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/\s+/g, ' ')
+        .trim()
+      return text ? `Slide ${i + 1}: ${text}` : ''
+    })
+    return blocks.filter(Boolean).join('\n\n')
+  } catch {
+    return ''
+  }
 }

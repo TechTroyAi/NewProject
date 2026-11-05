@@ -46,6 +46,7 @@ create table if not exists items (
   ai_summary text,
   ai_tags text[] not null default '{}',
   key_terms jsonb not null default '[]'::jsonb,
+  speaker_notes text,
   created_at timestamptz not null default now(),
   unique (user_id, file_hash)
 );

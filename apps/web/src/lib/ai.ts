@@ -10,6 +10,7 @@ import {
 } from '@shelf/shared'
 import { IS_DEMO } from './db'
 import { getSessionClient } from './session'
+import { mediaUrl } from './media'
 import {
   describeProvider,
   embedText,
@@ -539,10 +540,17 @@ Return correct (boolean) and one sentence of feedback. Be fair: accept paraphras
 
 /* ─── Page image resolution ──────────────────────────────────── */
 
+/**
+ * The URL the browser uses to load a page image.
+ *
+ * Storage is private, so a stored path is served through
+ * `/api/media`, which checks that the file belongs to the caller and
+ * redirects to a short-lived signed URL. A deployment that fronts the
+ * bucket with its own CDN can set NEXT_PUBLIC_MEDIA_BASE_URL instead.
+ */
 export function resolvePageImage(itemId: string, idx: number, pageCount: number, storedPath?: string | null) {
   if (storedPath) {
-    const base = process.env.NEXT_PUBLIC_MEDIA_BASE_URL
-    return base ? `${base.replace(/\/$/, '')}/${storedPath}` : `/${storedPath}`
+    return mediaUrl(storedPath) ?? mockPageImage(itemId, idx, pageCount)
   }
   return mockPageImage(itemId, idx, pageCount)
 }

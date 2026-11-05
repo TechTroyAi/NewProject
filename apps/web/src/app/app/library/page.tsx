@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/primitives'
 import { getItems, getProgressMap, getSeriesList } from '@/lib/data'
 import { mockCover } from '@/lib/demo'
+import { mediaUrl } from '@/lib/media'
 import { cn } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
@@ -120,7 +121,7 @@ function ItemGrid({
             <div className="relative aspect-[3/4.2] overflow-hidden rounded-xl border border-line/8 transition duration-200 group-hover:-translate-y-1 group-hover:border-line/20">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={mockCover(item.title, item.type === 'cbz' ? 'manga' : 'book')}
+                src={mediaUrl(item.cover_path) ?? mockCover(item.title, item.type === 'cbz' ? 'manga' : 'book')}
                 alt={item.title}
                 className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
               />
