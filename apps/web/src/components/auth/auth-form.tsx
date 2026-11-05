@@ -41,6 +41,13 @@ function AuthFormInner({ mode }: { mode: 'login' | 'signup' }) {
   const [error, setError] = React.useState<string | null>(null)
   const [notice, setNotice] = React.useState<string | null>(null)
 
+  // The OAuth callback bounces back to /login with ?error=oauth when
+  // the provider or the exchange went wrong.
+  const oauthError = params.get('error')
+  React.useEffect(() => {
+    if (oauthError) setError('That sign-in did not go through. Please try again.')
+  }, [oauthError])
+
   const isSignup = mode === 'signup'
   const sb = getSupabaseBrowser()
 
@@ -74,6 +81,26 @@ function AuthFormInner({ mode }: { mode: 'login' | 'signup' }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Sign in with Google or GitHub. The provider sends the user back to /auth/callback. */
+  async function oauth(provider: 'google' | 'github') {
+    if (!sb || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const { error: err } = await sb.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
+        },
+      })
+      if (err) throw err
+      // The browser is on its way to the provider; the page unloads.
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
       setBusy(false)
     }
   }
@@ -165,6 +192,37 @@ function AuthFormInner({ mode }: { mode: 'login' | 'signup' }) {
           {!busy && <ArrowRight />}
         </Button>
       </form>
+
+      {/* ─── or sign in with a provider ─────────────────────── */}
+      {sb && (
+        <>
+          <div className="my-5 flex items-center gap-3">
+            <span className="h-px flex-1 bg-line/10" />
+            <span className="text-[11.5px] text-faint">or</span>
+            <span className="h-px flex-1 bg-line/10" />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button
+              variant="secondary"
+              onClick={() => void oauth('google')}
+              disabled={busy}
+              className="w-full"
+            >
+              {busy ? <Loader2 className="animate-spin" /> : null}
+              Google
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void oauth('github')}
+              disabled={busy}
+              className="w-full"
+            >
+              {busy ? <Loader2 className="animate-spin" /> : null}
+              GitHub
+            </Button>
+          </div>
+        </>
+      )}
 
       {/* ─── demo escape hatch ──────────────────────────────── */}
       {!sb && (

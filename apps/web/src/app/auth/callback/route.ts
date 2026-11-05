@@ -1,34 +1,38 @@
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/db'
+import { getSessionClient } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-/** OAuth / email-confirmation callback: exchanges the code, then returns home. */
+/**
+ * Where an OAuth sign-in comes back to.
+ *
+ * Supabase uses the PKCE flow for browser clients, so the provider
+ * sends the user back here with a `?code=`. The code is exchanged for
+ * a session, the session cookies are set, and the user continues to
+ * wherever they were headed.
+ */
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const code = url.searchParams.get('code')
-  const next = url.searchParams.get('next') ?? '/app'
+  const next = url.searchParams.get('next')
+  // Only same-origin paths are honoured — an open redirect here would
+  // hand an attacker a link that looks like a sign-in.
+  const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/app'
 
-  if (code && SUPABASE_URL && SUPABASE_ANON_KEY) {
-    const cookieStore = cookies()
-    const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value
-        },
-        set(name: string, value: string, options: Record<string, unknown>) {
-          cookieStore.set({ name, value, ...(options as object) })
-        },
-        remove(name: string, options: Record<string, unknown>) {
-          cookieStore.set({ name, value: '', ...(options as object) })
-        },
-      },
-    })
-    await supabase.auth.exchangeCodeForSession(code)
+  if (!code) {
+    return NextResponse.redirect(new URL('/login?error=oauth', url.origin))
   }
 
-  return NextResponse.redirect(new URL(next, url.origin))
+  const sb = await getSessionClient()
+  if (!sb) {
+    return NextResponse.redirect(new URL('/login?error=oauth', url.origin))
+  }
+
+  const { error } = await sb.auth.exchangeCodeForSession(code)
+  if (error) {
+    return NextResponse.redirect(new URL('/login?error=oauth', url.origin))
+  }
+
+  return NextResponse.redirect(new URL(target, url.origin))
 }
