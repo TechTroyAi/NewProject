@@ -4,6 +4,10 @@
 # Office documents are a classic attack vector, so this image runs
 # with no network egress, a read-only root filesystem and a non-root
 # user. The host must also drop all Linux capabilities.
+#
+# Build from the repository root, because the worker imports two
+# packages that live in it:
+#   docker build -t shelf-worker -f apps/worker/Dockerfile .
 # ─────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS base
 
@@ -31,15 +35,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Dependencies first so the layer caches across source changes.
-COPY package.json ./
-RUN npm install --omit=dev --ignore-scripts && npm cache clean --force
+# The local packages and the worker's manifest first, so the install
+# layer is cached across source changes.
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/sources/package.json packages/sources/package.json
+COPY apps/worker/package.json apps/worker/package.json
 
-COPY tsconfig.json ./
-COPY src ./src
+# `@shelf/shared` and `@shelf/sources` are workspace packages, not
+# registry packages. Point them at the copies in the image before
+# installing, or npm would go looking for them on the registry.
+RUN node -e "\
+const fs = require('fs');\
+const path = 'apps/worker/package.json';\
+const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));\
+pkg.dependencies['@shelf/shared'] = 'file:../../packages/shared';\
+pkg.dependencies['@shelf/sources'] = 'file:../../packages/sources';\
+fs.writeFileSync(path, JSON.stringify(pkg, null, 2));\
+" \
+ && cd apps/worker \
+ && npm install --omit=dev --ignore-scripts \
+ && npm cache clean --force
+
+COPY packages/shared packages/shared
+COPY packages/sources packages/sources
+COPY apps/worker/tsconfig.json apps/worker/tsconfig.json
+COPY apps/worker/src apps/worker/src
 
 # Precompile to plain JS so the runtime image needs no TypeScript.
-RUN npm install --no-save tsx@4.19.2
+RUN cd apps/worker && npm install --no-save tsx@4.19.2
 
 # Non-root runtime user.
 RUN useradd --create-home --shell /bin/bash shelf \

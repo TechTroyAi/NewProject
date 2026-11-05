@@ -2,7 +2,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { useVirtualizer, type ReactVirtualizer } from '@tanstack/react-virtual'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import {
   ArrowLeft,
@@ -125,15 +125,25 @@ export function Reader({
     [item.id],
   )
 
+  // The virtualizer lives below, but `goTo` needs it to scroll the
+  // long strip when the reader jumps to a page with the keyboard.
+  const virtualizerRef = React.useRef<ReactVirtualizer<HTMLDivElement, Element> | null>(null)
+
   const goTo = React.useCallback(
     (next: number) => {
       const clamped = Math.min(Math.max(0, next), pageCount - 1)
       setPage(clamped)
       maxRead.current = Math.max(maxRead.current, clamped)
       persist(clamped, clamped >= pageCount - 1)
+      // In the strip the page is wherever the reader scrolled to, so
+      // jumping to a page has to move the scroll as well — otherwise
+      // the arrow keys change the page number but not the view.
+      if (mode === 'strip') {
+        virtualizerRef.current?.scrollToIndex(clamped, { align: 'start' })
+      }
       router.replace(`/app/read/${item.id}?p=${clamped}`, { scroll: false })
     },
-    [pageCount, persist, router, item.id],
+    [pageCount, persist, router, item.id, mode],
   )
 
   /* ── remember the reader preferences ────────────────────────── */
@@ -267,6 +277,10 @@ export function Reader({
     estimateSize: () => 720,
     overscan: 3,
   })
+
+  React.useEffect(() => {
+    virtualizerRef.current = virtualizer
+  }, [virtualizer])
 
   React.useEffect(() => {
     if (mode !== 'strip') return

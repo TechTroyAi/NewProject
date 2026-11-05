@@ -5,6 +5,7 @@
   "description": "Shelf \u2014 a reading + notes + AI shelf. Drop anything, read it, think about it, remember it.",
   "workspaces": [
     "apps/web",
+    "apps/worker",
     "packages/*"
   ],
   "scripts": {
@@ -15,7 +16,7 @@
     "typecheck": "npm run typecheck --workspace @shelf/web && npm --prefix apps/worker run typecheck && npm --prefix packages/sources run typecheck",
     "worker:dev": "npm --prefix apps/worker run dev",
     "test": "node --import tsx --test tests/*.test.ts",
-    "worker:build": "docker build -t shelf-worker apps/worker"
+    "worker:build": "docker build -t shelf-worker -f apps/worker/Dockerfile ."
   },
   "engines": {
     "node": ">=20"

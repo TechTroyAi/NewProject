@@ -21,14 +21,22 @@ export async function POST(req: Request) {
       { status: 429, headers: rateLimitHeaders(limited) },
     )
   }
-  let body: { question?: string; scope?: unknown }
+  let body: { question?: unknown; scope?: unknown } | null
   try {
     body = await req.json()
   } catch {
     return new Response('bad request', { status: 400 })
   }
+  if (!body || typeof body !== 'object') {
+    return new Response('bad request', { status: 400 })
+  }
 
-  const question = (body.question ?? '').trim()
+  // A question that is not a string is a broken client, not a server
+  // error — calling `.trim()` on it used to throw a 500.
+  if (typeof body.question !== 'string') {
+    return new Response('question required', { status: 400 })
+  }
+  const question = body.question.trim()
   if (!question) return new Response('question required', { status: 400 })
   // A prompt is a bill. Anything longer than this is a paste accident.
   if (question.length > 4000) {

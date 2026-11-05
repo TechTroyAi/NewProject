@@ -1,6 +1,10 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import AdmZip from 'adm-zip'
+import sharp from 'sharp'
 import { naturalCompare } from '../util/natural.js'
 
 const exec = promisify(execFile)
@@ -20,15 +24,48 @@ export async function extractText(pageImagePath: string): Promise<string> {
   // stage, so the only way to get text out of it is OCR. (PDFs get
   // their text layer extracted during conversion, where the original
   // file is still around.)
+  //
+  // The stored page is a WebP. Tesseract reads images through
+  // leptonica, whose WebP support depends on how it was built — so
+  // the page is converted to a PNG first and OCR runs on that.
+  const png = await asPng(pageImagePath)
   try {
     const { stdout } = await exec(
       'tesseract',
-      [pageImagePath, 'stdout', '-l', 'eng', '--psm', '6'],
+      [png.path, 'stdout', '-l', 'eng', '--psm', '6'],
       { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 },
     )
     return stdout.trim()
   } catch {
     return ''
+  } finally {
+    if (png.temporary) {
+      await rm(png.path, { force: true }).catch(() => {})
+    }
+  }
+}
+
+/**
+ * A copy of the page in a format Tesseract is guaranteed to read.
+ *
+ * The original file is returned untouched when it is already a PNG or
+ * a JPEG — only the WebP pages the pipeline stores are converted.
+ */
+async function asPng(
+  pageImagePath: string,
+): Promise<{ path: string; temporary: boolean }> {
+  if (!/\.webp$/i.test(pageImagePath)) {
+    return { path: pageImagePath, temporary: false }
+  }
+  try {
+    const buffer = await sharp(pageImagePath).png().toBuffer()
+    const path = join(tmpdir(), `shelf-ocr-${process.pid}-${Date.now()}.png`)
+    await writeFile(path, buffer)
+    return { path, temporary: true }
+  } catch {
+    // If the conversion fails, hand the original over — Tesseract may
+    // still be able to read it.
+    return { path: pageImagePath, temporary: false }
   }
 }
 

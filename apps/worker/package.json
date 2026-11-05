@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@shelf/shared": "*",
     "@shelf/sources": "*",
     "@supabase/supabase-js": "^2.46.4",
     "adm-zip": "^0.5.16",

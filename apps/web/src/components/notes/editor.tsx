@@ -195,18 +195,23 @@ export function NoteEditor({
   }, [note.id, note.body_md, note.title, note.updated_at])
 
   // Keep a copy locally every second while there is unsaved work.
+  // The latest text is read through a ref so the interval survives
+  // typing — re-creating it on every keystroke meant a note that was
+  // never left alone was never written to the local draft either.
+  const latestText = React.useRef({ title, body })
+  latestText.current = { title, body }
   React.useEffect(() => {
     if (!dirty) return
     const t = setInterval(() => {
       void saveDraft({
         noteId: note.id,
-        title,
-        body_md: body,
+        title: latestText.current.title,
+        body_md: latestText.current.body,
         savedAt: Date.now(),
       })
     }, 1000)
     return () => clearInterval(t)
-  }, [dirty, note.id, title, body])
+  }, [dirty, note.id])
 
   /* ── wikilink autocomplete ─────────────────────────────────── */
   const suggestions = React.useMemo(() => {
