@@ -45,11 +45,14 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: fa
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 4000)
 
 async function claimJob(): Promise<Job | null> {
+  // Oldest first — that is the order the pipeline stages were queued
+  // in. The id breaks a tie so two workers never claim the same job.
   const { data } = await sb
     .from('jobs')
     .update({ status: 'running', updated_at: new Date().toISOString() })
     .eq('status', 'queued')
-    .order('created_at')
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
     .limit(1)
     .select()
     .maybeSingle()
@@ -274,14 +277,19 @@ async function runSummarize(job: Job) {
 
   const result = await summarize(sample, { title: item.title })
 
+  // The AI's volume/chapter are a guess; the file name is not. Only
+  // overwrite them when the model actually had an opinion — otherwise
+  // a summary that forgot the number would wipe the parsed one.
   await sb
     .from('items')
     .update({
       ai_summary: result.summary,
       ai_tags: result.tags,
       key_terms: result.keyTerms,
-      volume: result.volume,
-      chapter: result.chapter,
+      ...(result.volume !== null && result.volume !== undefined ? { volume: result.volume } : {}),
+      ...(result.chapter !== null && result.chapter !== undefined
+        ? { chapter: result.chapter }
+        : {}),
     })
     .eq('id', job.item_id)
 

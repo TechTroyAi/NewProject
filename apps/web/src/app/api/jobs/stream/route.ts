@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { PIPELINE_STAGES } from '@shelf/shared'
 import { getSessionClient, getUserId } from '@/lib/session'
 import { IS_DEMO } from '@/lib/db'
 
@@ -10,7 +11,7 @@ const POLL_MS = 700
 /** Give up after this long — the tray falls back to a generic state. */
 const MAX_MS = 5 * 60_000
 
-const STAGES = ['sniff', 'convert', 'ocr', 'chunk', 'embed', 'summarize', 'match'] as const
+const STAGES = PIPELINE_STAGES
 
 function sse(controller: ReadableStreamDefaultController<Uint8Array>, event: string, data: unknown) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`

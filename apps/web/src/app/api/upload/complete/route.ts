@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { UploadCompleteSchema, safeFileName } from '@shelf/shared'
+import { PIPELINE_STAGES, UploadCompleteSchema, safeFileName } from '@shelf/shared'
 import { IS_DEMO } from '@/lib/db'
 import { getSessionClient, getUserId } from '@/lib/session'
 
@@ -60,10 +60,22 @@ export async function POST(req: Request) {
   // Enqueue the pipeline stages. The worker picks these up.
   // The order matters: the chunks have to exist before they can be
   // embedded, and the AI pass reads the OCR'd text.
-  for (const stage of ['sniff', 'convert', 'ocr', 'chunk', 'embed', 'summarize', 'match']) {
+  // The worker claims the oldest job first, so the stages have to be
+  // queued in order. All seven rows would otherwise share one
+  // timestamp and Postgres could hand them back in any order — which
+  // is how `embed` ends up running before `chunk` and quietly leaves
+  // the item without any embeddings.
+  const base = Date.now()
+  for (const [index, stage] of PIPELINE_STAGES.entries()) {
     const { error: jobError } = await sb
       .from('jobs')
-      .insert({ user_id: userId, item_id: itemId, stage, status: 'queued' })
+      .insert({
+        user_id: userId,
+        item_id: itemId,
+        stage,
+        status: 'queued',
+        created_at: new Date(base + index).toISOString(),
+      })
     if (jobError) return NextResponse.json({ error: jobError.message }, { status: 500 })
   }
 

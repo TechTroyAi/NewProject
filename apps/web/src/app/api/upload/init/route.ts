@@ -59,7 +59,11 @@ export async function POST(req: Request) {
   // In production this is an S3/R2 presigned PUT. The storage adapter is
   // intentionally thin so it can be swapped for Supabase Storage.
   const base = process.env.STORAGE_SIGNING_ENDPOINT
-  const uploadUrl = base ? `${base}/${encodeURIComponent(path)}` : null
+  // Each segment is encoded on its own — encoding the whole path
+  // would escape the slashes and change the key.
+  const uploadUrl = base
+    ? `${base.replace(/\/$/, '')}/${path.split('/').map(encodeURIComponent).join('/')}`
+    : null
 
   return NextResponse.json({ itemId, path, uploadUrl })
 }

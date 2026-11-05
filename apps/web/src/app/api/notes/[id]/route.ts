@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getBacklinks, getNoteById, saveNote } from '@/lib/data'
 import { requireUser } from '@/lib/api'
+import { isUuid } from '@shelf/shared'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -29,6 +30,20 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   if (typeof body.page_ref !== 'undefined' && body.page_ref !== null && typeof body.page_ref !== 'number') {
     return NextResponse.json({ error: 'page_ref must be a number' }, { status: 400 })
+  }
+  if (
+    typeof body.item_id !== 'undefined' &&
+    body.item_id !== null &&
+    (typeof body.item_id !== 'string' || !isUuid(body.item_id))
+  ) {
+    return NextResponse.json({ error: 'item_id must be a uuid' }, { status: 400 })
+  }
+  if (
+    typeof body.base_updated_at !== 'undefined' &&
+    body.base_updated_at !== null &&
+    typeof body.base_updated_at !== 'string'
+  ) {
+    return NextResponse.json({ error: 'base_updated_at must be a string' }, { status: 400 })
   }
 
   // A partial PATCH must not blank the fields it does not mention —

@@ -239,6 +239,13 @@ async function enqueue(
     }
 
     // Upload straight to storage via the presigned URL when one is issued.
+    if (!init.uploadUrl && !init.demo) {
+      // A live server without a storage endpoint cannot take the file.
+      // Simulating the transfer would look like it worked and then
+      // fail later, in the pipeline, with a confusing error.
+      throw new Error('this server has no storage configured, so the file could not be uploaded')
+    }
+
     if (init.uploadUrl) {
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest()

@@ -4,6 +4,35 @@ import { z } from 'zod'
    Shared contracts between the web app, the worker, and the DB.
    ══════════════════════════════════════════════════════════════ */
 
+/**
+ * The upload pipeline, in the order the worker has to run it.
+ *
+ * The worker claims the oldest job first, so the stages have to be
+ * queued in this order.
+ */
+export const PIPELINE_STAGES = [
+  'sniff',
+  'convert',
+  'ocr',
+  'chunk',
+  'embed',
+  'summarize',
+  'match',
+] as const
+
+export type PipelineStage = (typeof PIPELINE_STAGES)[number]
+
+/**
+ * Whether a string looks like a UUID.
+ *
+ * Route parameters that end up in a `uuid` column are checked with
+ * this first, so a bad path gives a 404 instead of a Postgres error.
+ */
+export function isUuid(value: string | null | undefined): boolean {
+  if (!value) return false
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
+
 export const NODE_KINDS = ['note', 'series', 'item', 'chapter', 'wiki', 'image', 'clip', 'card'] as const
 export type NodeKind = (typeof NODE_KINDS)[number]
 

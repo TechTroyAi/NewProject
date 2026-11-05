@@ -11,6 +11,7 @@ import {
   ChatScopeSchema,
   UploadCompleteSchema,
   toPgVector,
+  PIPELINE_STAGES,
 } from '@shelf/shared'
 
 import { resolveWikilinks } from '../apps/web/src/lib/wikilinks.ts'
@@ -419,5 +420,37 @@ describe('toPgVector', () => {
     assert.equal(toPgVector(null), null)
     assert.equal(toPgVector(undefined), null)
     assert.equal(toPgVector([]), null)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   The upload pipeline
+   ══════════════════════════════════════════════════════════════ */
+
+describe('PIPELINE_STAGES', () => {
+  test('runs the stages in the order the worker needs them', () => {
+    assert.deepEqual([...PIPELINE_STAGES], [
+      'sniff',
+      'convert',
+      'ocr',
+      'chunk',
+      'embed',
+      'summarize',
+      'match',
+    ])
+  })
+
+  test('chunks before embedding', () => {
+    // Without chunks there is nothing to embed, and the embeddings
+    // are what make semantic search work.
+    assert.ok(PIPELINE_STAGES.indexOf('chunk') < PIPELINE_STAGES.indexOf('embed'))
+  })
+
+  test('converts before OCR', () => {
+    assert.ok(PIPELINE_STAGES.indexOf('convert') < PIPELINE_STAGES.indexOf('ocr'))
+  })
+
+  test('every stage is unique', () => {
+    assert.equal(new Set(PIPELINE_STAGES).size, PIPELINE_STAGES.length)
   })
 })
