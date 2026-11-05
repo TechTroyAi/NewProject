@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { NoteEditor } from '@/components/notes/editor'
 import { QuizGenerator } from '@/components/quiz/quiz-generator'
-import { getBacklinks, getItems, getNoteById, getNotes, getSeriesList } from '@/lib/data'
+import { getBacklinks, getItems, getNoteById, getNotes, getSeriesList, listAllClips } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,13 +10,14 @@ export default async function NotePage({
   searchParams,
 }: {
   params: { noteId: string }
-  searchParams: { title?: string; body?: string; draft?: string }
+  searchParams: { title?: string; body?: string; draft?: string; item?: string; page?: string }
 }) {
-  const [note, notes, items, series] = await Promise.all([
+  const [note, notes, items, series, clips] = await Promise.all([
     getNoteById(params.noteId),
     getNotes(),
     getItems(),
     getSeriesList(),
+    listAllClips(),
   ])
 
   // `/app/notes/new` → start a blank note. Unresolved wikilinks link
@@ -25,13 +26,17 @@ export default async function NotePage({
   const prefill = (searchParams?.title ?? '').trim().slice(0, 200)
   const prefillBody = (searchParams?.body ?? '').slice(0, 20_000)
   const isDraft = searchParams?.draft === '1'
+  // A note can be anchored to the item and page it was taken from —
+  // the reader links here with `?item=&page=`.
+  const anchorItem = searchParams?.item?.trim() || null
+  const anchorPage = Number.parseInt(searchParams?.page ?? '', 10)
   const resolvedNote = isNew
     ? {
         id: 'new',
         title: prefill,
         body_md: prefillBody,
-        item_id: null,
-        page_ref: null,
+        item_id: anchorItem,
+        page_ref: Number.isFinite(anchorPage) && anchorPage >= 0 ? anchorPage : null,
         is_ai_draft: isDraft,
       }
     : note
@@ -41,8 +46,16 @@ export default async function NotePage({
 
   const backlinks = isNew ? [] : await getBacklinks(params.noteId)
 
+  const itemTitle = new Map(items.map((i) => [i.id, i.title]))
   const targets = [
     ...notes.map((n) => ({ id: n.id, title: n.title, kind: 'note' as const, subtitle: null })),
+    ...clips.map((c) => ({
+      id: c.id,
+      title: `Clip · ${itemTitle.get(c.item_id) ?? 'item'} p.${c.page_idx + 1}`,
+      kind: 'clip' as const,
+      subtitle: null,
+      linkText: `clip:${c.id}`,
+    })),
     ...items.map((i) => ({
       id: i.id,
       title: i.title,

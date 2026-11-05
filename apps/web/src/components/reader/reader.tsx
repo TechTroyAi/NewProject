@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/primitives'
 import { useHotkeys } from '@/lib/hotkeys'
+import { ClipOverlay, ClipToggle } from './clip-tool'
 import { useScopeStore } from '@/lib/scope-store'
 
 export interface ReaderPage {
@@ -73,6 +74,7 @@ export function Reader({
   const [page, setPage] = React.useState(initialPage)
   const [showNotes, setShowNotes] = React.useState(false)
   const [chrome, setChrome] = React.useState(true)
+  const [clipMode, setClipMode] = React.useState(false)
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const setScope = useScopeStore((s) => s.setScope)
   const setContext = useScopeStore((s) => s.setContext)
@@ -147,6 +149,11 @@ export function Reader({
     [mode, current, pageCount, rtl, goTo],
   )
 
+  // The clip tool only makes sense on a single page.
+  React.useEffect(() => {
+    if (mode !== 'paged' || spread) setClipMode(false)
+  }, [mode, spread])
+
   /* ── preload the next pages ───────────────────────────────── */
   // Paged mode jumps instantly, so the images that are about to be
   // shown are fetched before they are asked for.
@@ -199,6 +206,8 @@ export function Reader({
   const pageAreaRef = React.useRef<HTMLDivElement>(null)
 
   const onPageClick = (e: React.MouseEvent) => {
+    // The clip tool owns the pointer while it is on.
+    if (clipMode) return
     if (mode === 'strip') {
       setChrome((v) => !v)
       return
@@ -325,6 +334,12 @@ export function Reader({
                   alt={`Page ${current + 1}`}
                   className="block max-h-[calc(100dvh-100px)] w-auto"
                 />
+                <ClipOverlay
+                  itemId={item.id}
+                  pageIdx={current}
+                  active={clipMode}
+                  onSaved={() => setClipMode(false)}
+                />
               </div>
             )}
           </div>
@@ -406,6 +421,9 @@ export function Reader({
               <Plus className="size-3.5" />
             </button>
           </Tooltip>
+          {mode === 'paged' && !spread && (
+            <ClipToggle active={clipMode} onToggle={setClipMode} />
+          )}
           <Tooltip label="Notes for this item">
             <button
               onClick={() => setShowNotes((v) => !v)}
@@ -466,7 +484,17 @@ export function Reader({
             <p className="text-[12px] leading-relaxed text-muted">
               Write a note and anchor it to the page you are on. It becomes a link the graph can follow.
             </p>
-            <Button size="sm" className="mt-3 w-full">
+            <Button
+              size="sm"
+              className="mt-3 w-full"
+              onClick={() =>
+                router.push(
+                  `/app/notes/new?title=${encodeURIComponent(item.title)}&item=${encodeURIComponent(
+                    item.id,
+                  )}&page=${current}`,
+                )
+              }
+            >
               <Plus /> Note at p.{current + 1}
             </Button>
             <div className="mt-5 border-t border-line/8 pt-4">

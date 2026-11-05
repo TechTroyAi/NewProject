@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { htmlToText, sanitizeUntrustedHtml } from './sanitize-html.js'
-import { pdfPageText } from './ocr.js'
+import { pdfPageText, pdfPageTexts } from './ocr.js'
 import { naturalCompare } from '../util/natural.js'
 import type { ConvertedPage, SniffResult } from '../types.js'
 
@@ -96,13 +96,16 @@ async function convertPdf(path: string) {
     const files = (await readdir(dir)).filter((f) => f.endsWith('.png')).sort((a, b) => naturalCompare(a, b))
     const pages: ConvertedPage[] = []
     const texts: string[] = []
+    // One `pdftotext` run for the whole document; the per-page call
+    // is only a fallback for the pages it did not cover.
+    const bulkTexts = await pdfPageTexts(path)
     for (const [idx, f] of files.entries()) {
       const buffer = await readFile(join(dir, f))
       const meta = await sharp(buffer).metadata()
       pages.push({ idx, buffer, width: meta.width ?? 0, height: meta.height ?? 0 })
       // The text layer, when the PDF has one. A scanned PDF returns
       // nothing here and those pages go through OCR instead.
-      texts.push(await pdfPageText(path, idx + 1))
+      texts.push(bulkTexts[idx] ?? (await pdfPageText(path, idx + 1)))
     }
     return { pages, texts }
   } finally {
@@ -149,10 +152,9 @@ async function convertEpub(path: string) {
 
   const pages: ConvertedPage[] = []
   const texts: string[] = []
-  for (const [idx, entry] of html.entries()) {
+  for (const entry of html) {
     const raw = entry.getData().toString('utf8')
     const text = htmlToText(raw)
-    texts.push(text)
 
     // Render the chapter as a page image so it reads like every other
     // item. The markup comes from a stranger, so it is scrubbed of
@@ -161,10 +163,10 @@ async function convertEpub(path: string) {
     const htmlDoc = `<!doctype html><html><head><meta charset="utf-8"><style>
       body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:48px;line-height:1.7;font-size:17px}
       h1,h2,h3{line-height:1.25;margin:1.4em 0 .6em}p{margin:0 0 1em}</style></head><body>${safe}</body></html>`
-    const tmp = join(tmpdir(), `shelf-epub-${idx}.html`)
-    await writeFile(tmp, htmlDoc)
     const dir = await mkdtemp(join(tmpdir(), 'shelf-epubout-'))
     try {
+      const tmp = join(dir, 'chapter.html')
+      await writeFile(tmp, htmlDoc)
       await exec('soffice', [
         '--headless',
         '--norestore',
@@ -178,7 +180,12 @@ async function convertEpub(path: string) {
       const pdf = (await readdir(dir)).find((f) => f.endsWith('.pdf'))
       if (!pdf) continue
       const rendered = await convertPdf(join(dir, pdf))
-      for (const p of rendered.pages) pages.push({ ...p, idx: pages.length })
+      // One text per *page* — the caller indexes the two arrays
+      // together, so they have to stay the same length.
+      for (const p of rendered.pages) {
+        pages.push({ ...p, idx: pages.length })
+        texts.push(text)
+      }
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -200,9 +207,8 @@ async function convertText(path: string) {
   const CHARS = 2600
   const pages: ConvertedPage[] = []
   const texts: string[] = []
-  for (let i = 0, p = 0; i < raw.length; i += CHARS, p++) {
+  for (let i = 0; i < raw.length; i += CHARS) {
     const slice = raw.slice(i, i + CHARS)
-    texts.push(slice)
     const html = `<!doctype html><html><head><meta charset="utf-8"><style>
       body{font-family:Georgia,serif;padding:56px;line-height:1.7;font-size:17px;white-space:pre-wrap}
       </style></head><body>${escapeHtml(slice)}</body></html>`
@@ -218,7 +224,12 @@ async function convertText(path: string) {
       const pdf = (await readdir(dir)).find((f) => f.endsWith('.pdf'))
       if (!pdf) continue
       const rendered = await convertPdf(join(dir, pdf))
-      for (const rp of rendered.pages) pages.push({ ...rp, idx: pages.length })
+      // One text per *page* — the caller indexes the two arrays
+      // together, so they have to stay the same length.
+      for (const rp of rendered.pages) {
+        pages.push({ ...rp, idx: pages.length })
+        texts.push(slice)
+      }
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

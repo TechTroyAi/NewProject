@@ -110,10 +110,15 @@ export function QuizSession({ cards }: { cards: Card[] }) {
       '3': () => revealed && void rate(3),
       '4': () => revealed && void rate(4),
       f: () => void toggleFlag(),
+      // "Edit" jumps to the note the card came from — that is where
+      // the card is actually written.
+      e: () => {
+        if (card?.source_note) router.push(`/app/notes/${card.source_note}`)
+      },
       '?': () => setShowKeys((v) => !v),
       enter: () => setRevealed(true),
     },
-    [revealed, card, selected, rate, toggleFlag],
+    [revealed, card, selected, rate, toggleFlag, router],
   )
 
   async function gradeShort() {
@@ -342,6 +347,7 @@ export function QuizSession({ cards }: { cards: Card[] }) {
             <span><span className="kbd">1</span>–<span className="kbd">4</span> rate</span>
             <span><span className="kbd">enter</span> reveal</span>
             <span><span className="kbd">F</span> flag card</span>
+            <span><span className="kbd">E</span> edit source</span>
             <span><span className="kbd">?</span> this sheet</span>
           </div>
         </div>

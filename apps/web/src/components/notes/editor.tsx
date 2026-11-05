@@ -27,7 +27,9 @@ import { clearDraft, loadDraft, saveDraft } from '@/lib/drafts'
 export interface NoteTarget {
   id: string
   title: string
-  kind: 'note' | 'item'
+  kind: 'note' | 'item' | 'clip'
+  /** What actually goes between the brackets — `clip:<id>` for clips. */
+  linkText?: string
   subtitle?: string | null
   /** For items: the parent series title, so [[Blue Lock]] resolves. */
   seriesTitle?: string | null
@@ -77,6 +79,9 @@ export function NoteEditor({
         items: targets
           .filter((t) => t.kind === 'item')
           .map((t) => ({ id: t.id, title: t.title, seriesTitle: t.seriesTitle, chapter: t.chapter })),
+        clips: targets
+          .filter((t) => t.kind === 'clip')
+          .map((t) => ({ id: t.id, label: t.title })),
       }),
     [body, targets],
   )
@@ -228,13 +233,14 @@ export function NoteEditor({
     if (!suggest) return
     const before = body.slice(0, suggest.index)
     const after = body.slice(cursor)
-    const next = `${before}[[${t.title}]]${after}`
+    const link = t.linkText ?? t.title
+    const next = `${before}[[${link}]]${after}`
     setBody(next)
     setSuggest(null)
     requestAnimationFrame(() => {
       const ta = taRef.current
       if (!ta) return
-      const caret = before.length + t.title.length + 4
+      const caret = before.length + link.length + 4
       ta.focus()
       ta.setSelectionRange(caret, caret)
       setCursor(caret)

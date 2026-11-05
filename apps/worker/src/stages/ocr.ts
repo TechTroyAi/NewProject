@@ -53,6 +53,31 @@ export async function pdfPageText(pdfPath: string, pageNumber: number): Promise<
 }
 
 /**
+ * The text layer of every page of a PDF, in one pass.
+ *
+ * `pdftotext` separates pages with a form feed, so one run replaces
+ * one process spawn per page — which matters for a few hundred page
+ * documents. An empty array means the extraction failed and the
+ * caller should fall back to `pdfPageText`.
+ */
+export async function pdfPageTexts(pdfPath: string): Promise<string[]> {
+  try {
+    const { stdout } = await exec(
+      'pdftotext',
+      ['-layout', pdfPath, '-'],
+      { timeout: 180_000, maxBuffer: 64 * 1024 * 1024 },
+    )
+    if (!stdout) return []
+    return stdout.split('\f').map((t) => {
+      const trimmed = t.trim()
+      return trimmed.length >= MIN_CHARS_FOR_TEXT ? trimmed : ''
+    })
+  } catch {
+    return []
+  }
+}
+
+/**
  * Speaker notes from a PPTX.
  *
  * PowerPoint keeps them in `ppt/notesSlides/notesSlideN.xml` inside

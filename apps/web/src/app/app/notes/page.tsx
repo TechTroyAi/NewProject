@@ -5,13 +5,15 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/primitives'
-import { getNotes, getLinks } from '@/lib/data'
+import { getClip, getNotes, getLinks } from '@/lib/data'
+import { ClipView } from '@/components/reader/clip-view'
 import { relativeTime } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
-export default async function NotesPage({ searchParams }: { searchParams: { q?: string } }) {
+export default async function NotesPage({ searchParams }: { searchParams: { q?: string; clip?: string } }) {
   const [notes, links] = await Promise.all([getNotes(), getLinks()])
+  const clip = searchParams.clip ? await getClip(searchParams.clip) : null
   const q = searchParams.q?.toLowerCase() ?? ''
   const filtered = q
     ? notes.filter((n) => n.title.toLowerCase().includes(q) || n.body_md.toLowerCase().includes(q))
@@ -35,6 +37,12 @@ export default async function NotesPage({ searchParams }: { searchParams: { q?: 
           </Button>
         </Link>
       </div>
+
+      {clip && (
+        <div className="mb-4 max-w-sm">
+          <ClipView clip={clip} />
+        </div>
+      )}
 
       <form className="mb-4 flex items-center gap-2">
         <div className="relative max-w-sm flex-1">

@@ -14,6 +14,13 @@ export async function POST(req: Request) {
   }
   const { itemId, path, hash } = parsed.data
 
+  // `items.file_hash` is NOT NULL, and the duplicate check depends on
+  // it — a file without a hash is a client bug, not something to
+  // paper over.
+  if (!hash) {
+    return NextResponse.json({ error: 'hash required' }, { status: 400 })
+  }
+
   if (IS_DEMO) {
     return NextResponse.json({
       ok: true,
@@ -45,7 +52,7 @@ export async function POST(req: Request) {
     title: fileName.replace(/\.[a-z0-9]{1,5}$/i, ''),
     original_path: path,
     // Persisted so `/api/upload/init` can recognise a re-uploaded file.
-    file_hash: hash ?? null,
+    file_hash: hash,
     status: 'uploaded',
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

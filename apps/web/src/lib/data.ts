@@ -484,6 +484,125 @@ export async function createDeckFromCards(opts: {
   return { deckId: deck.id, cardIds: rows.map((r) => r.id) }
 }
 
+/* ─── clips ───────────────────────────────────────────────────── */
+
+/**
+ * Save a clip: a region of a page, stored as 0–1 fractions.
+ *
+ * The demo branch has nowhere to persist to, so the clip is handed
+ * back without being stored.
+ */
+export async function createClip(input: {
+  itemId: string
+  pageIdx: number
+  bbox: { x: number; y: number; w: number; h: number }
+  noteId: string | null
+}): Promise<{ id: string; item_id: string; page_idx: number; bbox: unknown }> {
+  if (IS_DEMO) {
+    return {
+      id: `clip-${input.itemId}-${input.pageIdx}`,
+      item_id: input.itemId,
+      page_idx: input.pageIdx,
+      bbox: input.bbox,
+    }
+  }
+
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+
+  const { data, error } = await (await db())
+    .from('clips')
+    .insert({
+      user_id: userId,
+      item_id: input.itemId,
+      page_idx: input.pageIdx,
+      bbox: input.bbox,
+      note_id: input.noteId,
+    })
+    .select('id, item_id, page_idx, bbox')
+    .single()
+  if (error) throw error
+  return data as { id: string; item_id: string; page_idx: number; bbox: unknown }
+}
+
+/** The clips saved for one item. */
+export async function listClips(itemId: string): Promise<
+  { id: string; item_id: string; page_idx: number; bbox: unknown; note_id: string | null }[]
+> {
+  if (IS_DEMO) return []
+  const { data } = await (await db())
+    .from('clips')
+    .select('id, item_id, page_idx, bbox, note_id')
+    .eq('item_id', itemId)
+    .order('page_idx')
+  return (data ?? []) as { id: string; item_id: string; page_idx: number; bbox: unknown; note_id: string | null }[]
+}
+
+/**
+ * A clip with the page it was taken from.
+ *
+ * The page dimensions are needed to crop the image to the clip's box.
+ */
+export async function getClip(clipId: string): Promise<{
+  id: string
+  item_id: string
+  page_idx: number
+  bbox: { x: number; y: number; w: number; h: number }
+  note_id: string | null
+  image_path: string | null
+  width: number | null
+  height: number | null
+  item_title: string
+} | null> {
+  if (IS_DEMO) return null
+
+  const { data } = await (await db())
+    .from('clips')
+    .select('id, item_id, page_idx, bbox, note_id')
+    .eq('id', clipId)
+    .maybeSingle()
+  if (!data) return null
+
+  const clip = data as {
+    id: string
+    item_id: string
+    page_idx: number
+    bbox: { x: number; y: number; w: number; h: number }
+    note_id: string | null
+  }
+
+  const [{ data: page }, { data: item }] = await Promise.all([
+    (await db())
+      .from('pages')
+      .select('image_path, width, height')
+      .eq('item_id', clip.item_id)
+      .eq('idx', clip.page_idx)
+      .maybeSingle(),
+    (await db()).from('items').select('title').eq('id', clip.item_id).maybeSingle(),
+  ])
+
+  return {
+    ...clip,
+    image_path: page?.image_path ?? null,
+    width: page?.width ?? null,
+    height: page?.height ?? null,
+    item_title: item?.title ?? 'Item',
+  }
+}
+
+/** Every clip the user owns — the targets for `[[clip:…]]` links. */
+export async function listAllClips(): Promise<
+  { id: string; item_id: string; page_idx: number; bbox: unknown }[]
+> {
+  if (IS_DEMO) return []
+  const { data } = await (await db())
+    .from('clips')
+    .select('id, item_id, page_idx, bbox')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  return (data ?? []) as { id: string; item_id: string; page_idx: number; bbox: unknown }[]
+}
+
 export async function getDecks() {
   if (IS_DEMO) return demoDecks
   const { data } = await (await db()).from('decks').select('*')

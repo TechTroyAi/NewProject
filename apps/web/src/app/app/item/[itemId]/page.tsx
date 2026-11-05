@@ -1,10 +1,10 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, BookOpen, FileText, Play, Sparkles, Tag } from 'lucide-react'
+import { ArrowLeft, BookOpen, FileText, Play, Scissors, Sparkles, Tag } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { getItemById, getNotes, getPagesForItem, getProgressMap, getSeriesList } from '@/lib/data'
+import { getItemById, getNotes, getPagesForItem, getProgressMap, getSeriesList, listClips } from '@/lib/data'
 import { mockCover } from '@/lib/demo'
 import { mediaUrl } from '@/lib/media'
 
@@ -14,11 +14,12 @@ export default async function ItemPage({ params }: { params: { itemId: string } 
   const item = await getItemById(params.itemId)
   if (!item) notFound()
 
-  const [pages, progress, notes, series] = await Promise.all([
+  const [pages, progress, notes, series, clips] = await Promise.all([
     getPagesForItem(params.itemId),
     getProgressMap(),
     getNotes(),
     getSeriesList(),
+    listClips(params.itemId),
   ])
   const p = progress.get(item.id)
   const linkedNotes = notes.filter((n) => n.item_id === item.id)
@@ -148,6 +149,32 @@ export default async function ItemPage({ params }: { params: { itemId: string } 
           </CardContent>
         </Card>
       </div>
+
+      {clips.length > 0 && (
+        <Card className="mt-4">
+          <CardHeader>
+            <Scissors className="size-4 text-faint" />
+            <CardTitle>Clips</CardTitle>
+            <span className="flex-1" />
+            <span className="text-[11.5px] text-faint">{clips.length}</span>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ul className="divide-y divide-line/5">
+              {clips.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/app/notes?clip=${c.id}`}
+                    className="flex items-center gap-2 px-4 py-3 transition hover:bg-raised/40"
+                  >
+                    <Scissors className="size-3 text-series" />
+                    <span className="text-[12.5px] text-muted">Clip from page {c.page_idx + 1}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mt-4">
         <CardHeader>
