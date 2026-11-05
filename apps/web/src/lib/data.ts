@@ -1,7 +1,14 @@
 import 'server-only'
 import './env'
 import type { Card, GraphEdge, GraphNode, Item, Note, Progress, Series } from '@shelf/shared'
-import { interleaveBySeries, kindOfItem, localDateKey, similarity, toPgVector } from '@shelf/shared'
+import {
+  interleaveBySeries,
+  kindOfItem,
+  localDateKey,
+  mergeSettings,
+  similarity,
+  toPgVector,
+} from '@shelf/shared'
 import { embedText, providerEnv } from './ai-provider'
 import { getSupabaseAdmin, IS_DEMO } from './db'
 import { getSessionClient, getUserId } from './session'
@@ -109,7 +116,7 @@ export async function saveProfileSettings(
   const settings = (profile?.settings ?? {}) as Record<string, unknown>
   const { error } = await (await db())
     .from('profiles')
-    .update({ settings: { ...settings, ...patch } })
+    .update({ settings: mergeSettings(settings, patch) })
     .eq('id', userId)
   if (error) throw error
 }

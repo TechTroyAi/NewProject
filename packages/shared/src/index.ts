@@ -23,6 +23,36 @@ export const PIPELINE_STAGES = [
 export type PipelineStage = (typeof PIPELINE_STAGES)[number]
 
 /**
+ * Merge a settings patch into a stored settings blob.
+ *
+ * The nested groups (reader, ai, quiz, notes) are merged one level
+ * deep — a shallow spread would drop the sibling keys, so saving the
+ * token budget would erase the model choice.
+ */
+export function mergeSettings(
+  current: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...current }
+  for (const [key, value] of Object.entries(patch)) {
+    const existing = out[key]
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      existing &&
+      typeof existing === 'object' &&
+      !Array.isArray(existing)
+    ) {
+      out[key] = { ...(existing as Record<string, unknown>), ...(value as Record<string, unknown>) }
+    } else {
+      out[key] = value
+    }
+  }
+  return out
+}
+
+/**
  * Read an integer out of a query string.
  *
  * `Number('abc')` is NaN, and a NaN that reaches a `slice()` quietly

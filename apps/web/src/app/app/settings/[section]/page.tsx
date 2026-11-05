@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { SettingsClient } from '@/components/shell/settings-client'
 import { describeAiProvider, type ProfileSettings } from '@shelf/shared'
 import { getProfile } from '@/lib/data'
+import { aiUsageToday } from '@/lib/ai-usage'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +19,8 @@ export default async function SettingsPage({ params }: { params: { section: stri
   const provider = describeAiProvider()
   const profile = await getProfile()
   const settings = (profile?.settings ?? {}) as ProfileSettings
+  const usage = await aiUsageToday()
+  const used = usage.tokensIn + usage.tokensOut
   return (
     <SettingsClient
       section={params.section}
@@ -25,6 +28,8 @@ export default async function SettingsPage({ params }: { params: { section: stri
       displayName={profile?.display_name ?? ''}
       dailyFormat={settings.notes?.dailyFormat ?? 'YYYY-MM-DD · daily'}
       reader={settings.reader ?? {}}
+      ai={{ dailyTokenBudget: settings.ai?.dailyTokenBudget ?? 200_000 }}
+      aiUsage={{ used, limit: settings.ai?.dailyTokenBudget ?? 200_000 }}
     />
   )
 }

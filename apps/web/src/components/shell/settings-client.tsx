@@ -33,16 +33,46 @@ export function SettingsClient({
   displayName = '',
   dailyFormat = 'YYYY-MM-DD · daily',
   reader = {},
+  ai = {},
+  aiUsage = null,
 }: {
   section: string
   provider: { id: AiProviderId | null; label: string; model: string | null; embeddingModel: string | null }
   displayName?: string
   dailyFormat?: string
   reader?: { mode?: 'strip' | 'paged'; rtl?: boolean; spread?: boolean; scale?: number }
+  ai?: { dailyTokenBudget?: number }
+  aiUsage?: { used: number; limit: number } | null
 }) {
   const router = useRouter()
   const { theme, accent, setTheme, setAccent } = useTheme()
   const [busy, setBusy] = React.useState<'zip' | 'json' | 'delete' | null>(null)
+  const [dailyTokenBudget, setDailyTokenBudget] = React.useState(
+    String(ai.dailyTokenBudget ?? 200_000),
+  )
+  const [busyBudget, setBusyBudget] = React.useState(false)
+
+  async function saveBudget() {
+    const value = Number.parseInt(dailyTokenBudget, 10)
+    if (!Number.isFinite(value) || value < 0) {
+      toast.error('The budget has to be a number of tokens.')
+      return
+    }
+    setBusyBudget(true)
+    try {
+      const res = await fetch('/api/settings/profile', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ settings: { ai: { dailyTokenBudget: value } } }),
+      })
+      if (!res.ok) throw new Error(`could not save (${res.status})`)
+      toast.success('Budget saved.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusyBudget(false)
+    }
+  }
   const [confirmingDelete, setConfirmingDelete] = React.useState(false)
   const [message, setMessage] = React.useState<string | null>(null)
 
@@ -219,14 +249,33 @@ export function SettingsClient({
                     Filter retrieval by your reading progress, in SQL. Unread pages never reach the model.
                   </p>
                 </div>
-                <Switch checked onCheckedChange={() => {}} />
+                {/* It is enforced in the query, so it is not a switch —
+                    there is nothing here to turn off. */}
+                <Badge tone="good">always on</Badge>
               </div>
               <div className="flex items-center gap-4 border-b border-line/6 pb-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium">Daily token budget</p>
-                  <p className="mt-0.5 text-[12px] text-muted">Stops runaway spend with a friendly message.</p>
+                  <p className="mt-0.5 text-[12px] text-muted">
+                    Stops runaway spend with a friendly message. 0 means no limit.
+                  </p>
+                  {aiUsage && (
+                    <p className="mt-1 text-[11.5px] text-faint">
+                      {aiUsage.used.toLocaleString()} of {aiUsage.limit.toLocaleString()} tokens used today
+                    </p>
+                  )}
                 </div>
-                <Input defaultValue="200000" className="w-32" />
+                <Input
+                  type="number"
+                  min={0}
+                  step={10000}
+                  value={dailyTokenBudget}
+                  onChange={(e) => setDailyTokenBudget(e.target.value)}
+                  className="w-32"
+                />
+                <Button size="sm" onClick={() => void saveBudget()} disabled={busyBudget}>
+                  Save
+                </Button>
               </div>
               <div>
                 <Label>Provider</Label>

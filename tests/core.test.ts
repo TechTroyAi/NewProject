@@ -14,6 +14,7 @@ import {
   PIPELINE_STAGES,
   safeInt,
   isUuid,
+  mergeSettings,
 } from '@shelf/shared'
 
 import { resolveWikilinks } from '../apps/web/src/lib/wikilinks.ts'
@@ -498,5 +499,45 @@ describe('isUuid', () => {
     assert.equal(isUuid(''), false)
     assert.equal(isUuid(null), false)
     assert.equal(isUuid(undefined), false)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   The settings blob
+   ══════════════════════════════════════════════════════════════ */
+
+describe('mergeSettings', () => {
+  test('adds a key', () => {
+    assert.deepEqual(mergeSettings({ a: 1 }, { b: 2 }), { a: 1, b: 2 })
+  })
+
+  test('replaces a scalar', () => {
+    assert.deepEqual(mergeSettings({ a: 1 }, { a: 2 }), { a: 2 })
+  })
+
+  test('merges a nested group instead of replacing it', () => {
+    // A shallow spread would drop the model when the budget is saved.
+    const merged = mergeSettings(
+      { ai: { model: 'gemini-3.8-flash', dailyTokenBudget: 100 } },
+      { ai: { dailyTokenBudget: 200 } },
+    )
+    assert.deepEqual(merged, { ai: { model: 'gemini-3.8-flash', dailyTokenBudget: 200 } })
+  })
+
+  test('keeps the other groups', () => {
+    const merged = mergeSettings(
+      { reader: { mode: 'strip' }, quiz: { newPerDay: 10 } },
+      { reader: { mode: 'paged' } },
+    )
+    assert.deepEqual(merged, {
+      reader: { mode: 'paged' },
+      quiz: { newPerDay: 10 },
+    })
+  })
+
+  test('an array replaces rather than merges', () => {
+    assert.deepEqual(mergeSettings({ dashboard: [{ i: 'a' }] }, { dashboard: [] }), {
+      dashboard: [],
+    })
   })
 })

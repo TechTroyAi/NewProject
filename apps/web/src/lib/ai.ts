@@ -8,8 +8,17 @@ import {
   ShortAnswerGradeSchema,
   type ChatScope,
   toPgVector,
+  type ProfileSettings,
 } from '@shelf/shared'
 import { IS_DEMO } from './db'
+import { getProfile } from './data'
+import {
+  budgetMessage,
+  checkAiBudget,
+  recordAiUsage,
+  DEFAULT_DAILY_TOKEN_BUDGET,
+  type AiBudget,
+} from './ai-usage'
 import { getSessionClient } from './session'
 import { mediaUrl } from './media'
 import {
@@ -106,6 +115,7 @@ async function* streamWithFallback(opts: {
   system: string
   prompt: string
   temperature?: number
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
 }): AsyncGenerator<string> {
   const provider = resolveProvider(await providerEnv())
   if (!provider) throw new Error('No AI provider configured')
@@ -123,12 +133,47 @@ async function* streamWithFallback(opts: {
           yield part.textDelta
         }
       }
+      // The usage is only known once the stream is finished.
+      const usage = await result.usage.catch(() => null)
+      if (usage) {
+        opts.onUsage?.({
+          inputTokens: usage.promptTokens ?? 0,
+          outputTokens: usage.completionTokens ?? 0,
+        })
+      }
       return
     } catch (err) {
       if (started || !isModelUnavailable(err)) throw err
       console.warn(`[shelf] model "${id}" unavailable, trying the next one`)
     }
   }
+}
+
+/* ─── The daily budget ───────────────────────────────────────── */
+
+/**
+ * The daily token ceiling from the profile.
+ *
+ * Zero means "no limit" — a user can turn the ceiling off on
+ * purpose.
+ */
+async function aiBudgetLimit(): Promise<number> {
+  try {
+    const profile = await getProfile()
+    const settings = (profile?.settings ?? {}) as ProfileSettings
+    return settings.ai?.dailyTokenBudget ?? DEFAULT_DAILY_TOKEN_BUDGET
+  } catch {
+    return DEFAULT_DAILY_TOKEN_BUDGET
+  }
+}
+
+/**
+ * Whether the assistant may spend anything today.
+ *
+ * The check happens before the first paid call, embedding included.
+ */
+export async function aiBudgetAvailable(): Promise<AiBudget> {
+  return checkAiBudget(await aiBudgetLimit())
 }
 
 /* ─── The spoiler guard ──────────────────────────────────────── */
@@ -320,6 +365,15 @@ export async function* chatStream(opts: {
   scope: ChatScope
   mode?: 'fast' | 'reason'
 }): AsyncGenerator<{ type: 'sources'; sources: ChatSource[] } | { type: 'text'; text: string } | { type: 'done' }> {
+  // The budget is checked before the first paid call — the embedding
+  // costs money too.
+  const budget = await aiBudgetAvailable()
+  if (!budget.ok) {
+    yield { type: 'text', text: budgetMessage(budget) }
+    yield { type: 'done' }
+    return
+  }
+
   // Embed the question so retrieval is semantic as well as keyword.
   // A failed embedding just means the SQL falls back to keyword rank.
   const queryEmbedding = await embedText(opts.question, await providerEnv())
@@ -338,11 +392,15 @@ export async function* chatStream(opts: {
   }
 
   try {
-    for await (const part of streamWithFallback({
+    const usage = await streamWithFallback({
       system: SYSTEM_PROMPT,
       prompt: buildPrompt(opts.question, retrieved.chunks, retrieved.notes),
       temperature: 0.3,
-    })) {
+      onUsage: (u) => {
+        void recordAiUsage('chat', u.inputTokens, u.outputTokens)
+      },
+    })
+    for await (const part of usage) {
       yield { type: 'text', text: part }
     }
   } catch (err) {
@@ -451,6 +509,11 @@ export async function generateQuizCards(opts: {
   n: number
   types: string[]
 }) {
+  const budget = await aiBudgetAvailable()
+  if (!budget.ok) {
+    return { cards: [], budgetMessage: budgetMessage(budget) }
+  }
+
   if (!(await hasKey())) {
     return {
       cards: demoCards.slice(0, opts.n).map((c) => ({
@@ -465,21 +528,27 @@ export async function generateQuizCards(opts: {
   }
   let object: { cards: z.infer<typeof QuizGenerationSchema>['cards'] }
   try {
-    ;({ object } = await withFallback((m) =>
-    generateObject({
-    model: m,
-    schema: QuizGenerationSchema,
-    prompt: QUIZ_PROMPT
-      .replace('{n}', String(opts.n))
-      .replace('{types}', opts.types.join(', '))
-      .concat(
-        `\n\nNOTE: ${opts.note.title}\n${opts.note.body_md.slice(0, 6000)}\n\nSOURCE EXCERPTS:\n${opts.excerpts
-          .map((e) => `(page ${e.page}) ${e.content}`)
-          .join('\n\n')
-          .slice(0, 8000)}`,
-      ),
-    }),
-  ))
+    const generated = await withFallback((m) =>
+      generateObject({
+        model: m,
+        schema: QuizGenerationSchema,
+        prompt: QUIZ_PROMPT
+          .replace('{n}', String(opts.n))
+          .replace('{types}', opts.types.join(', '))
+          .concat(
+            `\n\nNOTE: ${opts.note.title}\n${opts.note.body_md.slice(0, 6000)}\n\nSOURCE EXCERPTS:\n${opts.excerpts
+              .map((e) => `(page ${e.page}) ${e.content}`)
+              .join('\n\n')
+              .slice(0, 8000)}`,
+          ),
+      }),
+    )
+    object = generated.object
+    void recordAiUsage(
+      'quiz-generate',
+      generated.usage?.promptTokens ?? 0,
+      generated.usage?.completionTokens ?? 0,
+    )
   } catch (err) {
     console.error('[shelf] quiz provider failed:', err instanceof Error ? err.message : err)
     object = {
@@ -499,6 +568,11 @@ export async function generateQuizCards(opts: {
 /* ─── Short-answer grading ───────────────────────────────────── */
 
 export async function gradeShortAnswer(question: string, reference: string, answer: string) {
+  const budget = await aiBudgetAvailable()
+  if (!budget.ok) {
+    return { correct: false, feedback: budgetMessage(budget) }
+  }
+
   if (!(await hasKey())) {
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
     // An empty reference must not match everything: `''.includes('')`
@@ -514,19 +588,25 @@ export async function gradeShortAnswer(question: string, reference: string, answ
   }
   let object: z.infer<typeof ShortAnswerGradeSchema>
   try {
-    ;({ object } = await withFallback((m) =>
-    generateObject({
-    model: m,
-    schema: ShortAnswerGradeSchema,
-    prompt: `Grade the user's answer against the reference answer.
+    const graded = await withFallback((m) =>
+      generateObject({
+        model: m,
+        schema: ShortAnswerGradeSchema,
+        prompt: `Grade the user's answer against the reference answer.
 
 QUESTION: ${question}
 REFERENCE: ${reference}
 USER ANSWER: ${answer}
 
 Return correct (boolean) and one sentence of feedback. Be fair: accept paraphrases and partial credit if the core claim is right.`,
-    }),
-  ))
+      }),
+    )
+    object = graded.object
+    void recordAiUsage(
+      'short-answer',
+      graded.usage?.promptTokens ?? 0,
+      graded.usage?.completionTokens ?? 0,
+    )
   } catch (err) {
     console.error('[shelf] grading provider failed:', err instanceof Error ? err.message : err)
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
