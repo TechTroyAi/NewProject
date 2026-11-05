@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/primitives'
+import { toast } from 'sonner'
 
 interface CatalogSource {
   key: string
@@ -83,16 +84,23 @@ export function CatalogBrowser() {
   async function toggle(source: CatalogSource) {
     setBusy(source.key)
     try {
-      await fetch('/api/sources/connect', {
+      const res = await fetch('/api/sources/connect', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ key: source.key, disconnect: source.connected }),
       })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `could not ${source.connected ? 'disconnect' : 'connect'} (${res.status})`)
+      }
       const params = new URLSearchParams({ limit: '40', nsfw: nsfw ? '1' : '0' })
       if (lang) params.set('lang', lang)
       if (q) params.set('q', q)
-      const res = await fetch(`/api/sources?${params}`)
-      setData(await res.json())
+      const list = await fetch(`/api/sources?${params}`)
+      setData(await list.json())
+      toast.success(source.connected ? 'Source disconnected.' : 'Source connected.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(null)
     }

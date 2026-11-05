@@ -51,11 +51,14 @@ export function NoteEditor({
   note,
   targets,
   backlinks = [],
+  mentions = [],
   onSaved,
 }: {
   note: EditorNote
   targets: NoteTarget[]
   backlinks?: { id: string; title: string }[]
+  /** Notes that mention this one without linking to it. */
+  mentions?: { id: string; title: string; excerpt: string }[]
   onSaved?: (n: EditorNote) => void
 }) {
   const router = useRouter()
@@ -491,6 +494,28 @@ export function NoteEditor({
                 </Button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── unlinked mentions ─────────────────────────────────── */}
+      {mentions.length > 0 && (
+        <div className="border-t border-line/8 bg-surface/40 px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-faint">
+              <Sparkles className="size-3" />
+              Mentioned, not linked
+            </span>
+            {mentions.map((m) => (
+              <Link
+                key={m.id}
+                href={`/app/notes/${m.id}`}
+                title={m.excerpt}
+                className="rounded-lg border border-dashed border-wiki/30 bg-wiki/6 px-2 py-0.5 text-[11.5px] text-muted transition hover:border-wiki/50 hover:text-fg"
+              >
+                {m.title}
+              </Link>
+            ))}
           </div>
         </div>
       )}

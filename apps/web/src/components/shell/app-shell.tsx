@@ -23,9 +23,13 @@ const MOBILE_TABS = [
 export function AppShell({
   children,
   series = [],
+  tags = [],
+  counts,
 }: {
   children: React.ReactNode
   series?: { id: string; title: string; kind: string }[]
+  tags?: { id: string; name: string; color: string | null; count: number }[]
+  counts?: { notes: number; quiz: number; inbox: number }
 }) {
   const [paletteOpen, setPaletteOpen] = React.useState(false)
   const router = useRouter()
@@ -68,7 +72,7 @@ export function AppShell({
 
   return (
     <div className="flex h-dvh overflow-hidden bg-bg">
-      <Sidebar series={series as never} />
+      <Sidebar series={series as never} tags={tags} counts={counts} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onOpenPalette={() => setPaletteOpen(true)} />

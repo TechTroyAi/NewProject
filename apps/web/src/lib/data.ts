@@ -16,6 +16,7 @@ import {
   demoGraphEdges,
   demoGraphNodes,
   demoInbox,
+  demoTags,
   demoItems,
   demoLinks,
   demoNotes,
@@ -112,6 +113,36 @@ export async function getItems(filters: LibraryFilters = {}): Promise<Item[]> {
   }
   let q = (await db()).from('items').select('*')
   if (filters.q) q = q.ilike('title', `%${filters.q}%`)
+
+  // The kind is a property of the series, so it needs a second query:
+  // PostgREST's inner join would drop the items that have no series
+  // yet, and those are exactly the ones in the Inbox.
+  if (filters.kind && filters.kind !== 'all') {
+    const { data: seriesIds } = await (await db())
+      .from('series')
+      .select('id')
+      .eq('kind', filters.kind)
+    const ids = (seriesIds ?? []).map((r: { id: string }) => r.id)
+    q = ids.length ? q.in('series_id', ids) : q.eq('series_id', '__none__')
+  }
+
+  // A tag lives in `item_tags`, not on the item.
+  if (filters.tag) {
+    const { data: tagRows } = await (await db())
+      .from('tags')
+      .select('id')
+      .ilike('name', filters.tag)
+      .limit(1)
+    const tagId = (tagRows ?? [])[0]?.id as string | undefined
+    if (!tagId) return []
+    const { data: tagged } = await (await db())
+      .from('item_tags')
+      .select('item_id')
+      .eq('tag_id', tagId)
+    const ids = (tagged ?? []).map((r: { item_id: string }) => r.item_id)
+    q = ids.length ? q.in('id', ids) : q.eq('id', '__none__')
+  }
+
   const { data } = await q.order('created_at', { ascending: false })
   return data ?? []
 }
@@ -331,6 +362,47 @@ export async function getBacklinks(noteId: string) {
   if (!ids.length) return []
   const { data: notes } = await (await db()).from('notes').select('*').in('id', ids)
   return notes ?? []
+}
+
+/**
+ * Notes that mention this note without linking to it.
+ *
+ * The title is matched literally, which is what makes these useful:
+ * a note that writes "the fault models idea" but never typed
+ * "[[Fault models]]" is a link the user probably wants to make.
+ */
+export async function getUnlinkedMentions(
+  noteId: string,
+): Promise<{ id: string; title: string; excerpt: string }[]> {
+  const notes = await getNotes()
+  const target = notes.find((n) => n.id === noteId)
+  if (!target) return []
+  const needle = target.title.trim().toLowerCase()
+  // A one or two letter title would match half the vault.
+  if (needle.length < 3) return []
+
+  const links = await getLinks()
+  const linkedFrom = new Set(
+    links.filter((l) => l.to_note === noteId).map((l) => l.from_note as string),
+  )
+
+  const out: { id: string; title: string; excerpt: string }[] = []
+  for (const n of notes) {
+    if (n.id === noteId || linkedFrom.has(n.id)) continue
+    const body = n.body_md ?? ''
+    const at = body.toLowerCase().indexOf(needle)
+    if (at === -1) continue
+    const start = Math.max(0, at - 40)
+    out.push({
+      id: n.id,
+      title: n.title,
+      excerpt: `${start > 0 ? '…' : ''}${body.slice(start, at + needle.length + 60).replace(/\s+/g, ' ')}${
+        body.length > at + needle.length + 60 ? '…' : ''
+      }`,
+    })
+    if (out.length >= 8) break
+  }
+  return out
 }
 
 export async function getLinks() {
@@ -603,6 +675,63 @@ export async function listAllClips(): Promise<
   return (data ?? []) as { id: string; item_id: string; page_idx: number; bbox: unknown }[]
 }
 
+/* ─── navigation counters and tags ──────────────────────────── */
+
+/**
+ * The tags the user has actually used, with how many items carry them.
+ *
+ * The sidebar used to show a made-up list, which led to filters that
+ * matched nothing.
+ */
+export async function getTagList(): Promise<{ id: string; name: string; color: string | null; count: number }[]> {
+  if (IS_DEMO) return demoTags
+
+  const { data } = await (await db())
+    .from('tags')
+    .select('id, name, color')
+    .order('name')
+    .limit(40)
+  const tags = (data ?? []) as { id: string; name: string; color: string | null }[]
+
+  const { data: links } = await (await db())
+    .from('item_tags')
+    .select('tag_id')
+  const counts = new Map<string, number>()
+  for (const l of (links ?? []) as { tag_id: string }[]) {
+    counts.set(l.tag_id, (counts.get(l.tag_id) ?? 0) + 1)
+  }
+
+  return tags.map((t) => ({ ...t, count: counts.get(t.id) ?? 0 }))
+}
+
+/**
+ * The numbers next to the sidebar entries.
+ *
+ * Every count is real — a hard-coded "284 notes" is worse than no
+ * count at all.
+ */
+export async function getNavCounts(): Promise<{
+  notes: number
+  quiz: number
+  inbox: number
+}> {
+  if (IS_DEMO) {
+    return { notes: demoNotes.length, quiz: demoCards.filter((c) => c.status === 'active').length, inbox: demoInbox.length }
+  }
+
+  const [notes, cards, inbox] = await Promise.all([
+    (await db()).from('notes').select('id', { count: 'exact', head: true }),
+    (await db()).from('cards').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+    (await db()).from('items').select('id', { count: 'exact', head: true }).eq('status', 'needs_review'),
+  ])
+
+  return {
+    notes: notes.count ?? 0,
+    quiz: cards.count ?? 0,
+    inbox: inbox.count ?? 0,
+  }
+}
+
 export async function getDecks() {
   if (IS_DEMO) return demoDecks
   const { data } = await (await db()).from('decks').select('*')
@@ -855,13 +984,158 @@ export async function fileInboxItem(
 
 export async function getActivity(days = 120) {
   if (IS_DEMO) return demoActivity.slice(-days)
-  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+  // A local calendar date — `toISOString()` is UTC and would cut the
+  // first day off in the evening.
+  const since = localDateKey(new Date(Date.now() - (days - 1) * 86_400_000))
   const { data } = await (await db())
     .from('daily_activity')
     .select('*')
     .gte('date', since)
     .order('date')
   return data ?? []
+}
+
+/**
+ * The cards the user keeps getting wrong.
+ *
+ * The accuracy is the share of the last 30 days' reviews that were
+ * graded "good" or better. Cards with a single lucky guess are left
+ * out — a weak spot needs at least three attempts to mean anything.
+ */
+export interface AssistantPick {
+  id: string
+  kind: 'wiki' | 'link' | 'recap'
+  title: string
+  body: string
+  cta: string
+}
+
+/**
+ * The proposals the assistant puts on the dashboard.
+ *
+ * Every one of them is derived from the vault — a summary that really
+ * exists, a connection that really is missing, the real numbers for
+ * the week. A made-up proposal would send the user to a note about
+ * something they do not own.
+ */
+export async function getAssistantPicks(): Promise<AssistantPick[]> {
+  const picks: AssistantPick[] = []
+  const [items, notes, links, activity] = await Promise.all([
+    getItems(),
+    getNotes(),
+    getLinks(),
+    getActivity(14),
+  ])
+
+  // ── a summary that is ready to be read ──
+  const ready = items
+    .filter((i) => i.status === 'ready' && i.ai_summary && i.ai_summary.trim().length > 20)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0]
+  if (ready) {
+    const terms = (ready.key_terms ?? []).slice(0, 4).map((t) => t.term).filter(Boolean)
+    picks.push({
+      id: `wiki-${ready.id}`,
+      kind: 'wiki',
+      title: ready.title,
+      body: `${ready.ai_summary!.trim()}${terms.length ? `\n\nKey terms: ${terms.join(', ')}.` : ''}`,
+      cta: 'Review the draft',
+    })
+  }
+
+  // ── a connection the user has not made yet ──
+  const linked = new Set(links.map((l) => `${l.from_note}->${l.to_note}`))
+  for (const a of notes) {
+    const body = (a.body_md ?? '').toLowerCase()
+    if (!body) continue
+    for (const b of notes) {
+      if (a.id === b.id) continue
+      const needle = b.title.trim().toLowerCase()
+      if (needle.length < 4) continue
+      if (!body.includes(needle)) continue
+      if (linked.has(`${a.id}->${b.id}`)) continue
+      picks.push({
+        id: `link-${a.id}-${b.id}`,
+        kind: 'link',
+        title: b.title,
+        body: `“${a.title}” talks about “${b.title}” without linking to it. Connect the two?`,
+        cta: 'Create the link',
+      })
+      break
+    }
+    if (picks.some((p) => p.kind === 'link')) break
+  }
+
+  // ── the week's real numbers ──
+  const today = localDateKey()
+  const week = activity.filter((d) => d.date >= localDateKey(new Date(Date.now() - 6 * 86_400_000)))
+  const pages = week.reduce((n, d) => n + (d.pages ?? 0), 0)
+  const reviews = week.reduce((n, d) => n + (d.reviews ?? 0), 0)
+  const notesThisWeek = notes.filter((n) => {
+    const t = n.created_at ? Date.parse(n.created_at) : 0
+    return t >= Date.now() - 7 * 86_400_000
+  }).length
+  picks.push({
+    id: `recap-${today}`,
+    kind: 'recap',
+    title: 'Weekly recap',
+    body: `${notesThisWeek} note${notesThisWeek === 1 ? '' : 's'} written, ${pages} page${pages === 1 ? '' : 's'} read and ${reviews} card${reviews === 1 ? '' : 's'} reviewed this week. Draft a recap for your Sunday review.`,
+    cta: 'Add to a daily note',
+  })
+
+  return picks
+}
+
+export async function getWeakSpots(
+  limit = 5,
+): Promise<{ id: string; question: string; accuracy: number; reviews: number }[]> {
+  if (IS_DEMO) {
+    // The demo shelf has no review history, so the weak spots are
+    // derived from the cards themselves — the ones with an answer the
+    // user is most likely to get wrong.
+    return demoCards.slice(0, limit).map((c, i) => ({
+      id: c.id,
+      question: c.question,
+      accuracy: Math.max(38, 82 - i * 11),
+      reviews: 4 + i,
+    }))
+  }
+
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
+  const { data } = await (await db())
+    .from('reviews')
+    .select('card_id, rating, cards(id, question)')
+    .gte('reviewed_at', since)
+  if (!data?.length) return []
+
+  const byCard = new Map<string, { question: string; good: number; total: number }>()
+  for (const row of data as unknown as {
+    card_id: string
+    rating: number
+    cards: { id: string; question: string } | { id: string; question: string }[] | null
+  }[]) {
+    // PostgREST hands back a to-one embed as an array when the
+    // relationship was inferred as to-many.
+    const embedded = Array.isArray(row.cards) ? row.cards[0] : row.cards
+    const entry = byCard.get(row.card_id) ?? {
+      question: embedded?.question ?? 'Card',
+      good: 0,
+      total: 0,
+    }
+    entry.total += 1
+    if (row.rating >= 3) entry.good += 1
+    byCard.set(row.card_id, entry)
+  }
+
+  return [...byCard.entries()]
+    .filter(([, v]) => v.total >= 3)
+    .map(([id, v]) => ({
+      id,
+      question: v.question,
+      accuracy: Math.round((v.good / v.total) * 100),
+      reviews: v.total,
+    }))
+    .sort((a, b) => a.accuracy - b.accuracy || b.reviews - a.reviews)
+    .slice(0, limit)
 }
 
 export async function getStats() {

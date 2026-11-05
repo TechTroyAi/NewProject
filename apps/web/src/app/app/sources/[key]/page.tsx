@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, Compass } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { SourceBrowser } from '@/components/sources/source-browser'
 import { Badge } from '@/components/ui/badge'
 import { resolveConnected } from '@/lib/sources-data'

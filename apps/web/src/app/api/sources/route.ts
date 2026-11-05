@@ -54,19 +54,25 @@ export async function GET(req: Request) {
     live: catalog.live,
     revision: catalog.revision,
     languages,
-    extensions: Array.from(byExtension.entries()).map(([pkg, e]) => ({
-      packageName: pkg,
-      name: e.name,
-      iconPath: e.sources[0]?.iconPath ?? null,
-      version: e.sources[0]?.version ?? null,
-      nsfw: e.sources[0]?.nsfw ?? false,
-      adapter: e.sources[0]?.adapter ?? null,
-      sourceCount: e.sources.length,
-      connected: e.sources.some((s) => connectedKeys.has(s.key)),
-      sources: e.sources.slice(offset, offset + limit).map((s) => ({
-        ...s,
-        connected: connectedKeys.has(s.key),
+    // The extension groups are the unit of pagination — 1,400 of them
+    // in one response would be megabytes of JSON the browser never
+    // shows. The sources inside a group are small and stay whole, so
+    // the "+N" count in the UI is right.
+    extensions: Array.from(byExtension.entries())
+      .slice(offset, offset + limit)
+      .map(([pkg, e]) => ({
+        packageName: pkg,
+        name: e.name,
+        iconPath: e.sources[0]?.iconPath ?? null,
+        version: e.sources[0]?.version ?? null,
+        nsfw: e.sources[0]?.nsfw ?? false,
+        adapter: e.sources[0]?.adapter ?? null,
+        sourceCount: e.sources.length,
+        connected: e.sources.some((s) => connectedKeys.has(s.key)),
+        sources: e.sources.map((s) => ({
+          ...s,
+          connected: connectedKeys.has(s.key),
+        })),
       })),
-    })),
   })
 }

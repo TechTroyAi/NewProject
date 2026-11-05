@@ -15,6 +15,7 @@ import {
   Layers,
   Network,
   Plus,
+  Settings,
   Sparkles,
   Target,
 } from 'lucide-react'
@@ -25,15 +26,31 @@ import type { Series } from '@shelf/shared'
 const NAV = [
   { href: '/app', label: 'Dashboard', icon: Boxes, exact: true },
   { href: '/app/library', label: 'Library', icon: Layers },
-  { href: '/app/notes', label: 'Notes', icon: FileText, count: 284 },
-  { href: '/app/quiz', label: 'Quiz', icon: Target, count: 10 },
+  { href: '/app/notes', label: 'Notes', icon: FileText, count: 'notes' as const },
+  { href: '/app/quiz', label: 'Quiz', icon: Target, count: 'quiz' as const },
   { href: '/app/graph', label: 'Graph', icon: Network },
   { href: '/app/sources', label: 'Sources', icon: Compass },
-  { href: '/app/inbox', label: 'Inbox', icon: Inbox, count: 3 },
+  { href: '/app/inbox', label: 'Inbox', icon: Inbox, count: 'inbox' as const },
   { href: '/app/stats', label: 'Stats', icon: ChartNoAxesColumn },
+  { href: '/app/settings/general', label: 'Settings', icon: Settings },
 ]
 
-export function Sidebar({ series = [] }: { series?: Series[] }) {
+export interface SidebarTag {
+  id: string
+  name: string
+  color: string | null
+  count: number
+}
+
+export function Sidebar({
+  series = [],
+  tags = [],
+  counts,
+}: {
+  series?: Series[]
+  tags?: SidebarTag[]
+  counts?: { notes: number; quiz: number; inbox: number }
+}) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
 
@@ -112,7 +129,7 @@ export function Sidebar({ series = [] }: { series?: Series[] }) {
                       active ? 'bg-accent/20 text-accent' : 'bg-raised text-faint',
                     )}
                   >
-                    {item.count}
+                    {counts ? counts[item.count] : 0}
                   </span>
                 )}
               </Link>
@@ -175,23 +192,21 @@ export function Sidebar({ series = [] }: { series?: Series[] }) {
               Tags
             </div>
             <ul className="flex flex-wrap gap-1.5 px-2">
-              {[
-                { n: 'spoilers', c: 'rgb(var(--chapter))' },
-                { n: 'theory', c: 'rgb(var(--series))' },
-                { n: 'lecture', c: 'rgb(var(--accent))' },
-                { n: 'to-read', c: 'rgb(var(--muted))' },
-                { n: 'motif', c: 'rgb(var(--wiki))' },
-              ].map((t) => (
-                <li key={t.n}>
+              {tags.map((t) => (
+                <li key={t.id}>
                   <Link
-                    href={`/app/library?tag=${t.n}`}
+                    href={`/app/library?tag=${encodeURIComponent(t.name)}`}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-line/8 bg-raised/60 px-1.5 py-0.5 text-[11px] text-muted transition hover:border-line/18 hover:text-fg"
                   >
-                    <span className="size-1.5 rounded-full" style={{ background: t.c }} />
-                    #{t.n}
+                    <span
+                      className="size-1.5 rounded-full"
+                      style={{ background: `rgb(var(--${t.color ?? 'muted'}))` }}
+                    />
+                    #{t.name}
                   </Link>
                 </li>
               ))}
+              {tags.length === 0 && <li className="px-0.5 text-[11px] text-faint">No tags yet</li>}
             </ul>
           </>
         )}
@@ -199,7 +214,14 @@ export function Sidebar({ series = [] }: { series?: Series[] }) {
 
       {/* User */}
       <div className={cn('border-t border-line/8 p-3', collapsed && 'px-1.5')}>
-        <div className={cn('flex items-center gap-2.5', collapsed && 'justify-center')}>
+        <Link
+          href="/app/settings/general"
+          className={cn(
+            'flex items-center gap-2.5 rounded-xl px-1 py-1 transition hover:bg-raised/60',
+            collapsed && 'justify-center px-0',
+          )}
+          aria-label="Settings"
+        >
           <span className="grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[rgb(var(--wiki))] to-[rgb(var(--accent))] text-[11px] font-bold text-black">
             TR
           </span>
@@ -212,7 +234,7 @@ export function Sidebar({ series = [] }: { series?: Series[] }) {
               <Sparkles className="size-3.5 shrink-0 text-accent" />
             </>
           )}
-        </div>
+        </Link>
       </div>
 
       {/* Collapse toggle */}

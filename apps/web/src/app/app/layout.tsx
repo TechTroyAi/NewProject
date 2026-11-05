@@ -1,12 +1,16 @@
 import { AppShell } from '@/components/shell/app-shell'
-import { getSeriesList } from '@/lib/data'
+import { getNavCounts, getSeriesList, getTagList } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const series = await getSeriesList()
+  const [series, tags, counts] = await Promise.all([
+    getSeriesList(),
+    getTagList(),
+    getNavCounts(),
+  ])
   return (
-    <AppShell series={series}>
+    <AppShell series={series} tags={tags} counts={counts}>
       {children}
     </AppShell>
   )

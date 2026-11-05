@@ -1,7 +1,15 @@
 import { notFound } from 'next/navigation'
 import { NoteEditor } from '@/components/notes/editor'
 import { QuizGenerator } from '@/components/quiz/quiz-generator'
-import { getBacklinks, getItems, getNoteById, getNotes, getSeriesList, listAllClips } from '@/lib/data'
+import {
+  getBacklinks,
+  getItems,
+  getNoteById,
+  getNotes,
+  getSeriesList,
+  getUnlinkedMentions,
+  listAllClips,
+} from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,7 +52,9 @@ export default async function NotePage({
   if (!resolvedNote && !isNew) notFound()
   if (!resolvedNote) notFound()
 
-  const backlinks = isNew ? [] : await getBacklinks(params.noteId)
+  const [backlinks, mentions] = isNew
+    ? [[], []]
+    : await Promise.all([getBacklinks(params.noteId), getUnlinkedMentions(params.noteId)])
 
   const itemTitle = new Map(items.map((i) => [i.id, i.title]))
   const targets = [
@@ -68,7 +78,7 @@ export default async function NotePage({
 
   return (
     <div className="flex h-full flex-col">
-      <NoteEditor note={resolvedNote} targets={targets} backlinks={backlinks} />
+      <NoteEditor note={resolvedNote} targets={targets} backlinks={backlinks} mentions={mentions} />
       {!isNew && resolvedNote && (
         <div className="border-t border-line/8 bg-surface/40 px-4 py-2.5">
           <QuizGenerator

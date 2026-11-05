@@ -427,6 +427,15 @@ function card(
   }
 }
 
+/** The tags the demo shelf is filed under. */
+export const demoTags: { id: string; name: string; color: string | null; count: number }[] = [
+  { id: 'tag-spoilers', name: 'spoilers', color: 'chapter', count: 12 },
+  { id: 'tag-theory', name: 'theory', color: 'series', count: 8 },
+  { id: 'tag-lecture', name: 'lecture', color: 'accent', count: 6 },
+  { id: 'tag-to-read', name: 'to-read', color: null, count: 4 },
+  { id: 'tag-motif', name: 'motif', color: 'wiki', count: 3 },
+]
+
 export const demoDecks: {
   id: string
   user_id: string

@@ -21,7 +21,10 @@ import { RecentNotes } from '@/components/dashboard/recent-notes'
 import { GraphPreview } from '@/components/dashboard/graph-preview'
 import { AiPicks } from '@/components/dashboard/ai-picks'
 import { WidgetErrorBoundary } from '@/components/shell/widget-error-boundary'
+import { localDateKey } from '@shelf/shared'
 import {
+  getActivity,
+  getAssistantPicks,
   getContinueReading,
   getDueCards,
   getGraph,
@@ -34,7 +37,7 @@ import {
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  const [profile, cont, notes, graph, stats, cards, series] = await Promise.all([
+  const [profile, cont, notes, graph, stats, cards, series, picks, activity] = await Promise.all([
     getProfile(),
     getContinueReading(6),
     getNotes(6),
@@ -42,6 +45,8 @@ export default async function DashboardPage() {
     getStats(),
     getDueCards(1),
     getSeriesList(),
+    getAssistantPicks(),
+    getActivity(60),
   ])
 
   const now = new Date()
@@ -59,29 +64,35 @@ export default async function DashboardPage() {
     kind: series.find((s) => s.id === item.series_id)?.kind ?? 'manga',
   }))
 
-  const aiPicks = [
-    {
-      id: 'p1',
-      kind: 'wiki' as const,
-      title: 'Wiki draft',
-      body: '3 character pages ready from Blue Lock c.184–186 — citations included.',
-      cta: 'Review draft',
-    },
-    {
-      id: 'p2',
-      kind: 'link' as const,
-      title: 'Connection found',
-      body: 'Your notes "Denji’s smile" and "Egoist awakening" describe the same device. Link them?',
-      cta: 'Create link',
-    },
-    {
-      id: 'p3',
-      kind: 'recap' as const,
-      title: 'Weekly recap',
-      body: '47 notes, 12 chapters, 21-day streak. Draft recap for Sunday’s review.',
-      cta: 'Add to daily note',
-    },
-  ]
+  // The assistant's proposals are derived from the vault, not invented.
+  const aiPicks = picks
+
+  // ── the numbers on the tiles ──
+  const last14 = activity.slice(-14)
+  const spark = (pick: (d: { pages: number; reviews: number }) => number) =>
+    last14.map(pick)
+  const pagesSpark = spark((d) => d.pages ?? 0)
+  const reviewsSpark = spark((d) => d.reviews ?? 0)
+
+  const thisWeek = last14.slice(-7)
+  const prevWeek = last14.slice(0, 7)
+  const sum = (rows: typeof thisWeek, pick: (d: (typeof rows)[number]) => number) =>
+    rows.reduce((n, d) => n + pick(d), 0)
+  const pagesNow = sum(thisWeek, (d) => d.pages ?? 0)
+  const pagesBefore = sum(prevWeek, (d) => d.pages ?? 0)
+  const pagesDelta =
+    pagesBefore > 0 ? Math.round(((pagesNow - pagesBefore) / pagesBefore) * 100) : null
+
+  // The review streak: consecutive days, counting back from today,
+  // with a day that has no reviews yet not breaking it.
+  let streak = 0
+  const byDate = new Map(activity.map((d) => [d.date, d]))
+  for (let i = 0; i < 400; i++) {
+    const key = localDateKey(new Date(Date.now() - i * 86_400_000))
+    const day = byDate.get(key)
+    if (day && (day.reviews ?? 0) > 0) streak += 1
+    else if (i > 0) break
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 py-5 sm:px-6">
@@ -128,37 +139,38 @@ export default async function DashboardPage() {
           label="Notes this week"
           value={stats.notesThisWeek}
           unit={`/ ${stats.notesGoal} goal`}
-          delta={`↑ ${Math.abs(stats.noteDelta)}% vs last week`}
+          delta={
+            stats.noteDelta === 0
+              ? 'same as last week'
+              : `${stats.noteDelta > 0 ? '↑' : '↓'} ${Math.abs(stats.noteDelta)}% vs last week`
+          }
           icon={<FileText />}
           tone="linear-gradient(135deg, rgb(var(--accent)), rgb(var(--note)))"
-          spark={[3, 5, 4, 7, 6, 9, 8]}
         />
         <StatTile
-          label="Chapters read"
+          label="Chapters finished"
           value={stats.chaptersRead}
-          unit="this month"
-          delta="↑ 4 vs last month"
+          unit="so far"
           icon={<BookOpen />}
           tone="linear-gradient(135deg, rgb(var(--series)), rgb(var(--chapter)))"
-          spark={[2, 4, 3, 5, 4, 6, 5]}
         />
         <StatTile
           label="Pages read"
           value={stats.pagesRead.toLocaleString()}
           unit="pages"
-          delta="↑ 12% vs last month"
+          delta={pagesDelta === null ? undefined : `${pagesDelta >= 0 ? '↑' : '↓'} ${Math.abs(pagesDelta)}% vs the week before`}
           icon={<TrendingUp />}
           tone="linear-gradient(135deg, rgb(var(--wiki)), rgb(var(--accent)))"
-          spark={[10, 14, 12, 18, 16, 22, 20]}
+          spark={pagesSpark}
         />
         <StatTile
           label="Due for review"
           value={stats.cardsDue}
           unit={`of ${stats.totalCards} cards`}
-          delta="11-day streak"
+          delta={streak > 0 ? `${streak}-day review streak` : undefined}
           icon={<Target />}
           tone="linear-gradient(135deg, rgb(var(--good)), rgb(var(--accent)))"
-          spark={[4, 2, 6, 3, 5, 2, 4]}
+          spark={reviewsSpark}
         />
       </div>
 
@@ -179,7 +191,11 @@ export default async function DashboardPage() {
                 <ContinueReading items={continueItems} />
               </WidgetErrorBoundary>
             </CardContent>
-            <AiSuggestStrip text="You’re 4 chapters behind on Blue Lock — your theory note predicted ch. 190. Catch up before the arc resolves?" />
+            {continueItems.length > 0 && (
+              <AiSuggestStrip
+                text={`Pick up ${continueItems[0].title} where you left off — page ${continueItems[0].page + 1} of ${continueItems[0].pageCount}.`}
+              />
+            )}
           </Card>
 
           {/* Graph */}
@@ -249,7 +265,11 @@ export default async function DashboardPage() {
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-2">
               {[
-                { href: '/app/read/i-bl-184', label: 'Resume reader', icon: BookOpen },
+                {
+                  href: continueItems[0] ? `/app/read/${continueItems[0].id}?p=${continueItems[0].page}` : '/app/library',
+                  label: 'Resume reader',
+                  icon: BookOpen,
+                },
                 { href: '/app/notes/new', label: 'Daily note', icon: FileText },
                 { href: '/app/quiz/session', label: 'Review cards', icon: Target },
                 { href: '/app/graph', label: 'Explore graph', icon: Network },
