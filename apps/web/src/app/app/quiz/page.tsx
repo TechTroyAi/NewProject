@@ -49,9 +49,11 @@ export default async function QuizPage() {
             <Layers className="size-4 text-faint" />
             <CardTitle>Decks</CardTitle>
             <span className="flex-1" />
-            <Button size="sm" variant="secondary">
-              <Plus /> New deck
-            </Button>
+            <Link href="/app/notes">
+              <Button size="sm" variant="secondary">
+                <Plus /> New deck
+              </Button>
+            </Link>
           </CardHeader>
           <CardContent className="p-0">
             <ul className="divide-y divide-line/5">
@@ -62,7 +64,7 @@ export default async function QuizPage() {
                 return (
                   <li key={d.id}>
                     <Link
-                      href={`/app/notes/${d.note_id}`}
+                      href={d.note_id ? `/app/notes/${d.note_id}` : '/app/quiz'}
                       className="flex items-center gap-3 px-4 py-3 transition hover:bg-raised/40"
                     >
                       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent">

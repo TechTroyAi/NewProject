@@ -427,7 +427,13 @@ function card(
   }
 }
 
-export const demoDecks = [
+export const demoDecks: {
+  id: string
+  user_id: string
+  title: string
+  item_id: string | null
+  note_id: string | null
+}[] = [
   { id: 'd-faults', user_id: DEMO_USER_ID, title: 'Fault models', item_id: null, note_id: 'n-fault-models' },
   { id: 'd-smile', user_id: DEMO_USER_ID, title: 'The Smile as a device', item_id: null, note_id: 'n-smile-device' },
   { id: 'd-hier', user_id: DEMO_USER_ID, title: 'Visual hierarchy', item_id: null, note_id: 'n-hierarchy' },

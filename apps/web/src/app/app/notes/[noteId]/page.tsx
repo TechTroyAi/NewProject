@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { NoteEditor } from '@/components/notes/editor'
+import { QuizGenerator } from '@/components/quiz/quiz-generator'
 import { getBacklinks, getItems, getNoteById, getNotes, getSeriesList } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
@@ -53,8 +54,17 @@ export default async function NotePage({
   ]
 
   return (
-    <div className="h-full">
+    <div className="flex h-full flex-col">
       <NoteEditor note={resolvedNote} targets={targets} backlinks={backlinks} />
+      {!isNew && resolvedNote && (
+        <div className="border-t border-line/8 bg-surface/40 px-4 py-2.5">
+          <QuizGenerator
+            noteId={resolvedNote.id}
+            noteTitle={resolvedNote.title}
+            itemId={resolvedNote.item_id ?? null}
+          />
+        </div>
+      )}
     </div>
   )
 }

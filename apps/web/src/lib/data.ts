@@ -5,6 +5,8 @@ import { interleaveBySeries, kindOfItem, localDateKey, similarity, toPgVector } 
 import { embedText } from './ai-provider'
 import { getSupabaseAdmin, IS_DEMO } from './db'
 import { getSessionClient, getUserId } from './session'
+import { newFsrsCard } from './fsrs'
+import { randomUUID } from 'node:crypto'
 import {
   DEMO_USER_ID,
   demoActivity,
@@ -365,6 +367,121 @@ export async function getGraph(): Promise<{ nodes: GraphNode[]; edges: GraphEdge
 }
 
 /* ─── Quiz ───────────────────────────────────────────────────── */
+
+/**
+ * Create a deck from generated cards.
+ *
+ * The cards are scheduled with FSRS starting today, so a brand new
+ * card is due immediately but is still counted against the daily
+ * "new cards" cap when the queue is built.
+ */
+export async function createDeckFromCards(opts: {
+  title: string
+  noteId?: string | null
+  itemId?: string | null
+  cards: {
+    type: string
+    question: string
+    answer: string
+    options?: string[] | null
+    explanation?: string | null
+    sourcePage?: number | null
+  }[]
+}): Promise<{ deckId: string; cardIds: string[] }> {
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+
+  if (IS_DEMO) {
+    const deckId = `d-${Date.now().toString(36)}`
+    demoDecks.push({
+      id: deckId,
+      user_id: userId,
+      title: opts.title,
+      item_id: opts.itemId ?? null,
+      note_id: opts.noteId ?? null,
+    })
+    const now = new Date().toISOString()
+    const cardIds: string[] = []
+    opts.cards.forEach((c, i) => {
+      const id = `c-${deckId}-${i}`
+      cardIds.push(id)
+      const empty = newFsrsCard()
+      demoCards.push({
+        id,
+        user_id: userId,
+        deck_id: deckId,
+        type: c.type as Card['type'],
+        question: c.question,
+        answer: c.answer,
+        options: c.options ?? null,
+        explanation: c.explanation ?? null,
+        source_note: opts.noteId ?? null,
+        source_item: opts.itemId ?? null,
+        source_page: c.sourcePage ?? null,
+        spoiler_limit_page: c.sourcePage ?? 0,
+        status: 'active',
+        due: now,
+        stability: empty.stability,
+        difficulty: empty.difficulty,
+        elapsed_days: empty.elapsed_days,
+        scheduled_days: empty.scheduled_days,
+        reps: empty.reps,
+        lapses: empty.lapses,
+        learning_steps: empty.learning_steps,
+        state: empty.state,
+        last_review: null,
+      })
+    })
+    return { deckId, cardIds }
+  }
+
+  const sb = await db()
+  const { data: deck, error: deckError } = await sb
+    .from('decks')
+    .insert({
+      user_id: userId,
+      title: opts.title,
+      note_id: opts.noteId ?? null,
+      item_id: opts.itemId ?? null,
+    })
+    .select('id')
+    .single()
+  if (deckError) throw deckError
+
+  const now = new Date().toISOString()
+  const rows = opts.cards.map((c) => {
+    const empty = newFsrsCard()
+    return {
+      id: randomUUID(),
+      user_id: userId,
+      deck_id: deck.id,
+      type: c.type,
+      question: c.question,
+      answer: c.answer,
+      options: c.options ?? null,
+      explanation: c.explanation ?? null,
+      source_note: opts.noteId ?? null,
+      source_item: opts.itemId ?? null,
+      source_page: c.sourcePage ?? null,
+      spoiler_limit_page: c.sourcePage ?? 0,
+      status: 'active',
+      due: now,
+      stability: empty.stability,
+      difficulty: empty.difficulty,
+      elapsed_days: empty.elapsed_days,
+      scheduled_days: empty.scheduled_days,
+      reps: empty.reps,
+      lapses: empty.lapses,
+      learning_steps: empty.learning_steps,
+      state: empty.state,
+      last_review: null,
+    }
+  })
+
+  const { error: cardError } = await sb.from('cards').insert(rows)
+  if (cardError) throw cardError
+  return { deckId: deck.id, cardIds: rows.map((r) => r.id) }
+}
 
 export async function getDecks() {
   if (IS_DEMO) return demoDecks
