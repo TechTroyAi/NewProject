@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireUser } from '@/lib/api'
 import { browseSource } from '@/lib/sources/providers/registry'
 import { resolveConnected } from '@/lib/sources-data'
 
@@ -7,6 +8,8 @@ export const runtime = 'nodejs'
 
 /** Browse/search a connected source. */
 export async function GET(req: Request) {
+  const auth = await requireUser()
+  if ('response' in auth) return auth.response
   const url = new URL(req.url)
   const key = url.searchParams.get('source') ?? ''
   if (!key) return NextResponse.json({ error: 'source required' }, { status: 400 })

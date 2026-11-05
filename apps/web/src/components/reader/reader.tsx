@@ -232,11 +232,15 @@ export function Reader({
   }, [mode, item.id])
 
   // Track the page currently in view (strip mode).
+  // The current page is read through a ref so the listener does not
+  // have to be torn down and re-attached on every page change.
+  const pageRef = React.useRef(page)
+  pageRef.current = page
   React.useEffect(() => {
     if (mode !== 'strip') return
     const onScroll = () => {
       const idx = virtualizer.range?.startIndex ?? 0
-      if (idx !== page) {
+      if (idx !== pageRef.current) {
         setPage(idx)
         maxRead.current = Math.max(maxRead.current, idx)
         persist(idx)
@@ -245,7 +249,7 @@ export function Reader({
     const el = scrollRef.current
     el?.addEventListener('scroll', onScroll, { passive: true })
     return () => el?.removeEventListener('scroll', onScroll)
-  }, [mode, virtualizer, page, persist])
+  }, [mode, virtualizer, persist])
 
   /* ── the page surface, shared by the plain and split layouts ── */
   const pageArea = (

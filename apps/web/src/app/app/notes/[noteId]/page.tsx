@@ -9,7 +9,7 @@ export default async function NotePage({
   searchParams,
 }: {
   params: { noteId: string }
-  searchParams: { title?: string }
+  searchParams: { title?: string; body?: string; draft?: string }
 }) {
   const [note, notes, items, series] = await Promise.all([
     getNoteById(params.noteId),
@@ -22,14 +22,16 @@ export default async function NotePage({
   // here with the title they were after, so it must not be dropped.
   const isNew = params.noteId === 'new'
   const prefill = (searchParams?.title ?? '').trim().slice(0, 200)
+  const prefillBody = (searchParams?.body ?? '').slice(0, 20_000)
+  const isDraft = searchParams?.draft === '1'
   const resolvedNote = isNew
     ? {
         id: 'new',
         title: prefill,
-        body_md: '',
+        body_md: prefillBody,
         item_id: null,
         page_ref: null,
-        is_ai_draft: false,
+        is_ai_draft: isDraft,
       }
     : note
 

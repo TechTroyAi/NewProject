@@ -27,7 +27,16 @@ export function AiPicks({ picks }: { picks: AiPick[] }) {
             key={p.id}
             onClick={() => {
               setDone((d) => [...d, p.id])
-              if (p.kind === 'wiki') router.push('/app/notes/new')
+              if (p.kind === 'wiki') {
+                // The proposal becomes a draft note the user edits —
+                // the assistant never writes to the vault on its own.
+                const q = new URLSearchParams({
+                  title: p.title,
+                  body: p.body,
+                  draft: '1',
+                })
+                router.push(`/app/notes/new?${q}`)
+              }
             }}
             className={`group w-full rounded-xl border border-line/8 bg-raised/40 p-3 text-left transition duration-200 hover:border-line/18 hover:bg-raised ${
               isDone ? 'opacity-45' : ''

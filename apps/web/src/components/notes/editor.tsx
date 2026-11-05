@@ -2,7 +2,6 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { marked } from 'marked'
 import {
   ArrowLeft,
   Check,
@@ -20,70 +19,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/primitives'
 import { resolveWikilinks, type ResolvedLink } from '@/lib/wikilinks'
-import { sanitizeHtml } from '@/lib/markdown'
+import { renderMarkdown } from '@/lib/markdown'
 import { clearDraft, loadDraft, saveDraft } from '@/lib/drafts'
-
-/* ══════════════════════════════════════════════════════════════
-   Markdown rendering with wikilinks.
-
-   Wikilinks are substituted with opaque placeholders *before*
-   marked runs, then swapped for anchors afterwards. That keeps
-   marked's own escaping intact and stops us from injecting raw
-   HTML into the pipeline. Fenced code blocks are left untouched.
-   ══════════════════════════════════════════════════════════════ */
-
-interface WikiToken {
-  type: 'wikilink'
-  raw: string
-  target: string
-  anchor: string | null
-  alias: string | null
-}
-
-function escapeHtml(s: string) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
-const WIKI_RE = /\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]/g
-
-function renderMarkdown(body: string, resolvedMap: Map<string, ResolvedLink>): string {
-  const anchors: string[] = []
-  const lines = body.split('\n')
-  const prepared: string[] = []
-  let inCode = false
-
-  for (const line of lines) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      inCode = !inCode
-      prepared.push(line)
-      continue
-    }
-    if (inCode) {
-      prepared.push(line)
-      continue
-    }
-    prepared.push(
-      line.replace(WIKI_RE, (raw) => {
-        const hit = resolvedMap.get(raw)
-        const label = escapeHtml(hit?.label ?? raw)
-        const kind = hit?.kind ?? 'note'
-        const resolved = hit?.resolved ?? false
-        const href = escapeHtml(hit?.href ?? '#')
-        const idx = anchors.length
-        anchors.push(
-          `<a href="${href}" class="wikilink" data-resolved="${resolved}" data-target="${kind}">${label}</a>`,
-        )
-        return `zWL${idx}zWL`
-      }),
-    )
-  }
-
-  let html = marked.parse(prepared.join('\n'), { async: false }) as string
-  html = html.replace(/zWL(\d+)zWL/g, (_, n: string) => anchors[Number(n)] ?? '')
-  // `marked` lets raw HTML through, so sanitise before it reaches
-  // `dangerouslySetInnerHTML`.
-  return sanitizeHtml(html)
-}
 
 /* ══════════════════════════════════════════════════════════════ */
 

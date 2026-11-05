@@ -1,4 +1,5 @@
 import DOMPurify from 'isomorphic-dompurify'
+import { marked } from 'marked'
 
 /* ══════════════════════════════════════════════════════════════
    HTML sanitisation.
@@ -51,4 +52,76 @@ export function sanitizeHtml(html: string): string {
     // Keep `target` from opening a tab that can navigate this one.
     ADD_ATTR: ['target'],
   })
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   Markdown rendering with wikilinks.
+
+   Wikilinks are substituted with opaque placeholders *before*
+   marked runs, then swapped for anchors afterwards. That keeps
+   marked's own escaping intact and stops us from injecting raw
+   HTML into the pipeline. Fenced code blocks are left untouched.
+   ══════════════════════════════════════════════════════════════ */
+
+const WIKI_RE = /\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]/g
+
+function escapeHtml(s: string) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/**
+ * Render a note body to sanitised HTML.
+ *
+ * `resolvedMap` is keyed by the *raw* wikilink text, e.g. `[[Blue
+ * Lock#Ch184]]`. Unresolved links are dimmed by the caller through
+ * `data-resolved="false"`.
+ */
+export function renderMarkdown(
+  body: string,
+  resolvedMap: Map<string, { label: string; kind: string; resolved: boolean; href: string }>,
+): string {
+  const anchors: string[] = []
+  const lines = body.split('\n')
+  const prepared: string[] = []
+  let inCode = false
+
+  // The placeholder has to be something the note cannot contain,
+  // otherwise a note that literally writes "zWL0zWL" would have it
+  // swapped for a link.
+  let token = 'zWL'
+  while (body.includes(token)) token = `z${token}`
+
+  for (const line of lines) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inCode = !inCode
+      prepared.push(line)
+      continue
+    }
+    if (inCode) {
+      prepared.push(line)
+      continue
+    }
+    prepared.push(
+      line.replace(WIKI_RE, (raw) => {
+        const hit = resolvedMap.get(raw)
+        const label = escapeHtml(hit?.label ?? raw)
+        const kind = hit?.kind ?? 'note'
+        const resolved = hit?.resolved ?? false
+        const href = escapeHtml(hit?.href ?? '#')
+        const idx = anchors.length
+        anchors.push(
+          `<a href="${href}" class="wikilink" data-resolved="${resolved}" data-target="${kind}">${label}</a>`,
+        )
+        return `${token}${idx}${token}`
+      }),
+    )
+  }
+
+  let html = marked.parse(prepared.join('\n'), { async: false }) as string
+  const placeholder = new RegExp(`${token}(\\d+)${token}`, 'g')
+  html = html.replace(placeholder, (_, n: string) => anchors[Number(n)] ?? '')
+  // `marked` lets raw HTML through, so sanitise before it reaches
+  // `dangerouslySetInnerHTML`.
+  return sanitizeHtml(html)
 }

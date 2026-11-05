@@ -49,17 +49,20 @@ export function RightPanel() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
 
-  if (!panelOpen) {
-    return (
-      <button
-        onClick={() => setPanelOpen(true)}
-        className="fixed right-4 top-4 z-40 hidden items-center gap-2 rounded-full border border-line/12 bg-surface px-3 py-2 text-[12px] shadow-pop transition hover:scale-[1.02] lg:flex"
-      >
-        <Sparkles className="size-3.5 text-accent" />
-        Assistant
-      </button>
-    )
-  }
+  // The command palette asks the assistant a question by dispatching
+  // `shelf:ask`; nothing else talks to the panel.
+  const sendRef = React.useRef<(text: string) => void>(() => {})
+
+  React.useEffect(() => {
+    const onAsk = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail
+      if (typeof detail !== 'string' || !detail.trim()) return
+      setPanelOpen(true)
+      void sendRef.current(detail)
+    }
+    window.addEventListener('shelf:ask', onAsk)
+    return () => window.removeEventListener('shelf:ask', onAsk)
+  }, [setPanelOpen])
 
   async function send(text: string) {
     const question = text.trim()
@@ -134,6 +137,20 @@ export function RightPanel() {
       setBusy(false)
       setMessages((m) => m.map((x) => (x.id === botMsg.id ? { ...x, pending: false } : x)))
     }
+  }
+
+  sendRef.current = (text: string) => void send(text)
+
+  if (!panelOpen) {
+    return (
+      <button
+        onClick={() => setPanelOpen(true)}
+        className="fixed right-4 top-4 z-40 hidden items-center gap-2 rounded-full border border-line/12 bg-surface px-3 py-2 text-[12px] shadow-pop transition hover:scale-[1.02] lg:flex"
+      >
+        <Sparkles className="size-3.5 text-accent" />
+        Assistant
+      </button>
+    )
   }
 
   return (

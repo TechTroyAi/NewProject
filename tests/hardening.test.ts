@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto'
 import { ratingToGrade } from '../apps/web/src/lib/fsrs.ts'
 import { Rating } from 'ts-fsrs'
 import type { Card } from '@shelf/shared'
+import { renderMarkdown } from '../apps/web/src/lib/markdown.ts'
 
 /* ══════════════════════════════════════════════════════════════
    Upload paths
@@ -285,5 +286,66 @@ describe('Sha256', () => {
       sha.absorb(new Uint8Array(data))
       assert.equal(sha.finish(), createHash('sha256').update(data).digest('hex'), `length ${length}`)
     }
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   Markdown rendering
+   ══════════════════════════════════════════════════════════════ */
+
+describe('renderMarkdown', () => {
+  test('turns a resolved wikilink into an anchor', () => {
+    const map = new Map([
+      ['[[Blue Lock]]', { label: 'Blue Lock', kind: 'item', resolved: true, href: '/app/read/i-1' }],
+    ])
+    const html = renderMarkdown('see [[Blue Lock]] here', map)
+    // DOMPurify reorders the attributes, so match them individually.
+    assert.match(html, /<a [^>]*href="\/app\/read\/i-1"/)
+    assert.match(html, /data-resolved="true"/)
+    assert.match(html, /data-target="item"/)
+  })
+
+  test('marks an unresolved wikilink as unresolved', () => {
+    const html = renderMarkdown('see [[Nowhere]] here', new Map())
+    assert.match(html, /data-resolved="false"/)
+  })
+
+  test('leaves the text of a wikilink alone when it is not in the map', () => {
+    const html = renderMarkdown('[[Nowhere]]', new Map())
+    assert.match(html, /Nowhere/)
+  })
+
+  test('does not let the note body forge a placeholder', () => {
+    // A note that literally contains the placeholder token must not
+    // have it swapped for a link.
+    const html = renderMarkdown('zWL0zWL', new Map())
+    assert.match(html, /zWL0zWL/)
+    assert.doesNotMatch(html, /<a /)
+  })
+
+  test('does not let a note body forge a placeholder when it also has links', () => {
+    const map = new Map([
+      ['[[Blue Lock]]', { label: 'Blue Lock', kind: 'item', resolved: true, href: '/app/read/i-1' }],
+    ])
+    const html = renderMarkdown('zWL0zWL and [[Blue Lock]]', map)
+    assert.match(html, /zWL0zWL/)
+    assert.equal((html.match(/<a /g) ?? []).length, 1)
+  })
+
+  test('strips script tags from raw HTML in a note', () => {
+    const html = renderMarkdown('<script>alert(1)</script>hello', new Map())
+    assert.doesNotMatch(html, /<script/i)
+    assert.doesNotMatch(html, /alert\(1\)/)
+  })
+
+  test('strips event handler attributes', () => {
+    const html = renderMarkdown('<img src=x onerror=alert(1)>', new Map())
+    assert.doesNotMatch(html, /onerror/i)
+  })
+
+  test('leaves wikilinks inside fenced code alone', () => {
+    const html = renderMarkdown('```\n[[Blue Lock]]\n```', new Map())
+    assert.doesNotMatch(html, /<a /)
+    assert.match(html, /\[\[Blue Lock\]\]/)
   })
 })

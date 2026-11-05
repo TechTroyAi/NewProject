@@ -1,7 +1,7 @@
 import 'server-only'
 import './env'
 import type { Card, GraphEdge, GraphNode, Item, Note, Progress, Series } from '@shelf/shared'
-import { interleaveBySeries, localDateKey } from '@shelf/shared'
+import { interleaveBySeries, kindOfItem, localDateKey, similarity } from '@shelf/shared'
 import { embedText } from './ai-provider'
 import { getSupabaseAdmin, IS_DEMO } from './db'
 import { getSessionClient, getUserId } from './session'
@@ -542,23 +542,88 @@ export async function saveCardReview(cardId: string, row: Partial<Card>, rating:
 
 export async function getInbox() {
   if (IS_DEMO) return demoInbox
-  const { data } = await (await db()).from('items').select('*').eq('status', 'needs_review').order('created_at')
-  return (data ?? []).map((i: Item) => ({
-    id: i.id,
-    title: i.title,
-    type: i.type,
-    reason: i.status_detail ?? 'Needs review',
-    candidates: i.series_id ? [] : [],
-    page_count: i.page_count,
-    created_at: i.created_at,
-  }))
+  const [{ data }, series] = await Promise.all([
+    (await db()).from('items').select('*').eq('status', 'needs_review').order('created_at'),
+    getSeriesList(),
+  ])
+  return (data ?? []).map((i: Item) => {
+    // The worker could not place this one, so offer the closest series
+    // as a suggestion — the same similarity it used to decide.
+    const wanted = kindOfItem(i.type)
+    const candidates = series
+      .filter((s) => s.kind === wanted || s.kind === 'mixed')
+      .map((s) => ({ id: s.id, title: s.title, score: similarity(s.title, i.title) }))
+      .filter((c) => c.score > 0.35)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+    return {
+      id: i.id,
+      title: i.title,
+      type: i.type,
+      reason: i.status_detail ?? 'Needs review',
+      candidates,
+      page_count: i.page_count,
+      created_at: i.created_at,
+    }
+  })
+}
+
+/**
+ * File an inbox item into a series, or start a new series for it.
+ *
+ * `seriesId` of `null` creates a series named after the item.
+ */
+export async function fileInboxItem(
+  itemId: string,
+  seriesId: string | null,
+): Promise<{ seriesId: string }> {
+  if (IS_DEMO) {
+    const id = seriesId ?? `s-${itemId}`
+    return { seriesId: id }
+  }
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+
+  const sb = await db()
+  const { data: item, error: itemError } = await sb
+    .from('items')
+    .select('*')
+    .eq('id', itemId)
+    .maybeSingle()
+  if (itemError) throw itemError
+  if (!item) throw new Error('item not found')
+
+  let target: string
+  if (seriesId) {
+    target = seriesId
+  } else {
+    const { data: created, error } = await sb
+      .from('series')
+      .insert({ user_id: userId, title: item.title, kind: kindOfItem(item.type) })
+      .select('id')
+      .single()
+    if (error) throw error
+    target = created.id
+  }
+
+  const { error } = await sb
+    .from('items')
+    .update({ series_id: target, status: 'ready', status_detail: null })
+    .eq('id', itemId)
+  if (error) throw error
+  return { seriesId: target }
 }
 
 /* ─── Activity & stats ───────────────────────────────────────── */
 
-export async function getActivity() {
-  if (IS_DEMO) return demoActivity
-  const { data } = await (await db()).from('daily_activity').select('*').order('date')
+export async function getActivity(days = 120) {
+  if (IS_DEMO) return demoActivity.slice(-days)
+  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+  const { data } = await (await db())
+    .from('daily_activity')
+    .select('*')
+    .gte('date', since)
+    .order('date')
   return data ?? []
 }
 
@@ -572,10 +637,6 @@ export async function getStats() {
   ])
   const pagesRead = activity.reduce((a, d) => a + (d.pages ?? 0), 0)
   const reviews = activity.reduce((a, d) => a + (d.reviews ?? 0), 0)
-  const week = activity.slice(-7)
-  const prevWeek = activity.slice(-14, -7)
-  const sum = (arr: { pages: number; reviews: number }[]) =>
-    arr.reduce((a, d) => a + d.pages + d.reviews, 0)
 
   // Today's slice of the activity roll-up.
   const today = localDateKey()
@@ -603,7 +664,12 @@ export async function getStats() {
     chaptersRead: items.filter((i) => progress.get(i.id)?.finished).length,
     pagesRead,
     reviews,
-    cardsDue: cards.filter((c) => c.due <= new Date().toISOString() && c.status === 'active').length,
+    // Compare as dates: Postgres hands back `+00:00` offsets while
+    // `toISOString()` ends in `Z`, and a lexicographic comparison of
+    // the two is only accidentally right.
+    cardsDue: cards.filter(
+      (c) => c.status === 'active' && Date.parse(c.due) <= Date.now(),
+    ).length,
     totalCards: cards.length,
     items: items.length,
     notes: notes.length,

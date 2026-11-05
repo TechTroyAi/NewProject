@@ -540,29 +540,40 @@ export const demoActivity: { date: string; pages: number; reviews: number }[] = 
 
 /* ─── Inbox (needs review) ──────────────────────────────────── */
 
-export const demoInbox = [
+export const demoInbox: {
+  id: string
+  title: string
+  type: Item['type']
+  reason: string
+  candidates: { id: string; title: string; score: number }[]
+  page_count: number
+  created_at: string
+}[] = [
   {
     id: 'ib1',
     title: 'Blue Lock v01 c188',
-    type: 'cbz' as const,
+    type: 'cbz',
     reason: 'No series match found',
-    candidates: ['Blue Lock'],
+    candidates: [{ id: 's-blue-lock', title: 'Blue Lock', score: 0.71 }],
     page_count: 38,
     created_at: days(1),
   },
   {
     id: 'ib2',
     title: 'Lecture 04 — Replication',
-    type: 'pdf' as const,
+    type: 'pdf',
     reason: 'Low-confidence title',
-    candidates: ['Distributed Systems', 'Distributed Systems (notes)'],
+    candidates: [
+      { id: 's-distsys', title: 'Distributed Systems', score: 0.44 },
+      { id: 's-distsys-notes', title: 'Distributed Systems (notes)', score: 0.39 },
+    ],
     page_count: 44,
     created_at: days(2),
   },
   {
     id: 'ib3',
     title: 'scan_2026_11_02',
-    type: 'image' as const,
+    type: 'image',
     reason: 'Could not determine type',
     candidates: [],
     page_count: 1,

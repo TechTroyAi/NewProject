@@ -1,7 +1,7 @@
 'use client'
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowRight, BookOpen, Loader2, Mail, KeyRound, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,7 +17,23 @@ import { getSupabaseBrowser } from '@/lib/db'
    ══════════════════════════════════════════════════════════════ */
 
 export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
+  // `useSearchParams` opts the tree out of static prerendering, so it
+  // lives behind a Suspense boundary and the shell can still be
+  // prerendered.
+  return (
+    <React.Suspense fallback={<AuthSkeleton />}>
+      <AuthFormInner mode={mode} />
+    </React.Suspense>
+  )
+}
+
+function AuthFormInner({ mode }: { mode: 'login' | 'signup' }) {
   const router = useRouter()
+  const params = useSearchParams()
+  // Where the middleware wanted to send the visitor before it bounced
+  // them here. Only same-origin paths are honoured.
+  const next = params.get('next')
+  const redirectTo = next && next.startsWith('/') && !next.startsWith('//') ? next : '/app'
   const [email, setEmail] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [displayName, setDisplayName] = React.useState('')
@@ -51,7 +67,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
       } else {
         const { error: err } = await sb.auth.signInWithPassword({ email, password })
         if (err) throw err
-        router.push('/app')
+        router.push(redirectTo)
         router.refresh()
         return
       }
@@ -165,6 +181,23 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
           {isSignup ? 'Sign in' : 'Create one'}
         </Link>
       </p>
+    </div>
+  )
+}
+
+
+/** The prerendered fallback while the query string is resolved. */
+function AuthSkeleton() {
+  return (
+    <div className="mx-auto w-full max-w-[420px] px-5 py-10">
+      <div className="skeleton mb-8 h-7 w-24 rounded-lg" />
+      <div className="skeleton mb-2 h-7 w-56 rounded-lg" />
+      <div className="skeleton h-4 w-72 rounded" />
+      <div className="mt-7 space-y-3.5">
+        <div className="skeleton h-9 w-full rounded-xl" />
+        <div className="skeleton h-9 w-full rounded-xl" />
+        <div className="skeleton h-9 w-full rounded-xl" />
+      </div>
     </div>
   )
 }

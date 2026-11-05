@@ -1,9 +1,7 @@
-import Link from 'next/link'
-import { Check, Inbox, Sparkles } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Inbox, Sparkles } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/primitives'
+import { InboxRow, InboxSkip } from '@/components/inbox/inbox-row'
 import { getInbox } from '@/lib/data'
 import { relativeTime } from '@/lib/utils'
 
@@ -48,25 +46,19 @@ export default async function InboxPage() {
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {it.candidates.map((c) => (
                         <span
-                          key={c}
+                          key={c.id}
                           className="inline-flex items-center gap-1 rounded-lg border border-line/10 bg-raised/60 px-1.5 py-0.5 text-[11px] text-muted"
                         >
                           <Sparkles className="size-2.5 text-accent" />
-                          {c}
+                          {c.title}
                         </span>
                       ))}
                     </div>
                   )}
                 </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button size="sm" variant="secondary">
-                    <Check /> Confirm
-                  </Button>
-                  <Link href="/app/library">
-                    <Button size="sm" variant="ghost">
-                      Skip
-                    </Button>
-                  </Link>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <InboxRow itemId={it.id} title={it.title} candidates={it.candidates} />
+                  <InboxSkip />
                 </div>
               </CardContent>
             </Card>

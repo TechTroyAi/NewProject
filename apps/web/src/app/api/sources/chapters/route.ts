@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireUser } from '@/lib/api'
 import { sourceChapters } from '@/lib/sources/providers/registry'
 import { resolveConnected } from '@/lib/sources-data'
 
@@ -7,6 +8,8 @@ export const runtime = 'nodejs'
 
 /** Chapter list for a manga on a connected source. */
 export async function GET(req: Request) {
+  const auth = await requireUser()
+  if ('response' in auth) return auth.response
   const url = new URL(req.url)
   const key = url.searchParams.get('source') ?? ''
   const mangaId = url.searchParams.get('mangaId') ?? ''
