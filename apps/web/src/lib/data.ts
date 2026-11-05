@@ -1,7 +1,7 @@
 import 'server-only'
 import './env'
 import type { Card, GraphEdge, GraphNode, Item, Note, Progress, Series } from '@shelf/shared'
-import { interleaveBySeries } from '@shelf/shared'
+import { interleaveBySeries, localDateKey } from '@shelf/shared'
 import { embedText } from './ai-provider'
 import { getSupabaseAdmin, IS_DEMO } from './db'
 import { getSessionClient, getUserId } from './session'
@@ -173,7 +173,9 @@ export async function getContinueReading(limit = 6) {
   return items
     .map((i) => ({ item: i, progress: progress.get(i.id) }))
     .filter((x) => x.progress && !x.progress.finished)
-    .sort((a, b) => (b.progress!.updated_at > a.progress!.updated_at ? 1 : -1))
+    // Most recently read first — this is the "pick up where you left
+    // off" list, so the oldest entry belongs at the bottom.
+    .sort((a, b) => (a.progress!.updated_at < b.progress!.updated_at ? 1 : -1))
     .slice(0, limit)
 }
 
@@ -471,12 +473,51 @@ export async function getAllCards(): Promise<Card[]> {
   return data ?? []
 }
 
+/** A single card, scoped to the signed-in user by RLS. */
+export async function getCard(cardId: string): Promise<Card | null> {
+  if (IS_DEMO) return demoCards.find((c) => c.id === cardId) ?? null
+  const { data, error } = await (await db()).from('cards').select('*').eq('id', cardId).maybeSingle()
+  if (error) throw error
+  return (data as Card) ?? null
+}
+
+/**
+ * Flag, suspend or re-activate a card.
+ *
+ * `status` is one of 'active' | 'suspended' | 'flagged' — a flagged
+ * card stays in the deck but is easier to find.
+ */
+export async function setCardStatus(
+  cardId: string,
+  status: 'active' | 'suspended' | 'flagged',
+): Promise<Card | null> {
+  if (IS_DEMO) {
+    const c = demoCards.find((x) => x.id === cardId)
+    if (!c) return null
+    c.status = status
+    return c
+  }
+  const { data, error } = await (await db())
+    .from('cards')
+    .update({ status })
+    .eq('id', cardId)
+    .select()
+    .single()
+  if (error) throw error
+  return data as Card
+}
+
 export async function saveCardReview(cardId: string, row: Partial<Card>, rating: number, msTaken?: number) {
   if (IS_DEMO) {
     const c = demoCards.find((x) => x.id === cardId)
     if (c) Object.assign(c, row)
     return c
   }
+  // Resolve the owner *before* mutating anything — otherwise a missing
+  // session leaves the card rescheduled with no review log.
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+
   const { data, error } = await (await db())
     .from('cards')
     .update(row)
@@ -484,14 +525,16 @@ export async function saveCardReview(cardId: string, row: Partial<Card>, rating:
     .select()
     .single()
   if (error) throw error
-  const userId = await getUserId()
-  if (!userId) throw new Error('Not authenticated')
-  await (await db()).from('reviews').insert({
+
+  // The review log drives the daily cap and the activity heatmap, so a
+  // failed insert must not pass silently.
+  const { error: reviewError } = await (await db()).from('reviews').insert({
     card_id: cardId,
     user_id: userId,
     rating,
     ms_taken: msTaken ?? 0,
   })
+  if (reviewError) throw reviewError
   return data
 }
 
@@ -535,7 +578,7 @@ export async function getStats() {
     arr.reduce((a, d) => a + d.pages + d.reviews, 0)
 
   // Today's slice of the activity roll-up.
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateKey()
   const reviewsToday = activity.find((d) => d.date === today)?.reviews ?? 0
 
   // Real note counts — the previous implementation invented the number

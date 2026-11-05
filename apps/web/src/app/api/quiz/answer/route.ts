@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { QuizAnswerSchema } from '@shelf/shared'
-import { getAllCards, saveCardReview } from '@/lib/data'
+import { getCard, saveCardReview } from '@/lib/data'
 import { reviewCard } from '@/lib/fsrs'
 import { requireUser } from '@/lib/api'
 
@@ -15,8 +15,7 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'invalid payload' }, { status: 400 })
 
   const { cardId, rating, msTaken } = parsed.data
-  const cards = await getAllCards()
-  const card = cards.find((c) => c.id === cardId)
+  const card = await getCard(cardId)
   if (!card) return NextResponse.json({ error: 'card not found' }, { status: 404 })
 
   const { card: updated, log } = reviewCard(card, rating)

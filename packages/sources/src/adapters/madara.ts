@@ -137,7 +137,10 @@ export const madaraAdapter: SourceAdapter = {
       const text = ($a.attr('title') || $a.text() || '').trim()
       const m = text.match(/chapter\s*([\d.]+)/i)
       const number = m ? Number(m[1]) : null
-      const id = href.split('?')[0].replace(/\/$/, '').split('/').pop() ?? href
+      // Keep the absolute chapter URL: a bare slug cannot be resolved
+      // back to the chapter page (the path is
+      // /manga/<series>/<chapter>/), so `pages()` would 404 on it.
+      const id = absolutise(href, base) ?? href.split('?')[0]
       if (seen.has(id)) return
       seen.add(id)
 

@@ -175,8 +175,10 @@ export async function importRemoteSeries(opts: {
   if (IS_DEMO) {
     const seriesId = `s-remote-${Date.now().toString(36)}`
     const itemIds: string[] = []
+    const stamp = Date.now().toString(36)
     for (const ch of chapters) {
-      itemIds.push(`i-remote-${Date.now().toString(36)}-${ch.id}`)
+      const slug = ch.id.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 40)
+      itemIds.push(`i-remote-${stamp}-${slug}`)
     }
     return { seriesId, itemIds, title: manga.title }
   }

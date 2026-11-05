@@ -41,10 +41,14 @@ export function QuizSession({ cards }: { cards: Card[] }) {
   const [selected, setSelected] = React.useState<number | null>(null)
   const [session, setSession] = React.useState({ again: 0, good: 0, hard: 0, easy: 0 })
   const [showKeys, setShowKeys] = React.useState(false)
+  const [flagged, setFlagged] = React.useState(false)
+  const [flagBusy, setFlagBusy] = React.useState(false)
   const [grading, setGrading] = React.useState(false)
 
   const card = queue[index]
-  const total = cards.length
+  // The queue grows when a missed card is re-queued, so the counter
+  // has to follow it — otherwise it reads "5 / 3".
+  const total = queue.length
   const done = index >= queue.length
 
   /* ── rating ────────────────────────────────────────────────── */
@@ -75,6 +79,26 @@ export function QuizSession({ cards }: { cards: Card[] }) {
     [card, index],
   )
 
+  const toggleFlag = React.useCallback(async () => {
+    if (!card || flagBusy) return
+    const next = !flagged
+    setFlagBusy(true)
+    // Optimistic — the flag is a note to self, not a graded answer.
+    setFlagged(next)
+    try {
+      const res = await fetch(`/api/quiz/card/${card.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: next ? 'flagged' : 'active' }),
+      })
+      if (!res.ok) setFlagged(!next)
+    } catch {
+      setFlagged(!next)
+    } finally {
+      setFlagBusy(false)
+    }
+  }, [card, flagged, flagBusy])
+
   useHotkeys(
     {
       ' ': () => {
@@ -85,10 +109,11 @@ export function QuizSession({ cards }: { cards: Card[] }) {
       '2': () => revealed && void rate(2),
       '3': () => revealed && void rate(3),
       '4': () => revealed && void rate(4),
-      f: () => setShowKeys((v) => !v),
+      f: () => void toggleFlag(),
+      '?': () => setShowKeys((v) => !v),
       enter: () => setRevealed(true),
     },
-    [revealed, card, selected, rate],
+    [revealed, card, selected, rate, toggleFlag],
   )
 
   async function gradeShort() {
@@ -111,7 +136,8 @@ export function QuizSession({ cards }: { cards: Card[] }) {
 
   /* ── done ──────────────────────────────────────────────────── */
   if (done || !card) {
-    const reviewed = total + session.again
+    // Every "Again" adds one more review on top of the original queue.
+    const reviewed = cards.length + session.again
     return (
       <div className="mx-auto grid min-h-full w-full max-w-lg place-items-center px-6 py-16">
         <div className="w-full text-center">
@@ -152,6 +178,18 @@ export function QuizSession({ cards }: { cards: Card[] }) {
       <div className="flex items-center gap-3">
         <Button size="icon-sm" variant="ghost" onClick={() => router.push('/app/quiz')} aria-label="Exit">
           <ArrowLeft />
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          onClick={() => void toggleFlag()}
+          disabled={flagBusy}
+          aria-label={flagged ? 'Unflag card' : 'Flag card'}
+          aria-pressed={flagged}
+          title={flagged ? 'Unflag card (F)' : 'Flag this card (F)'}
+          className={flagged ? 'text-warn' : undefined}
+        >
+          <Flag />
         </Button>
         <div className="flex-1">
           <Progress value={(index / total) * 100} />
@@ -303,7 +341,8 @@ export function QuizSession({ cards }: { cards: Card[] }) {
             <span><span className="kbd">space</span> reveal</span>
             <span><span className="kbd">1</span>–<span className="kbd">4</span> rate</span>
             <span><span className="kbd">enter</span> reveal</span>
-            <span><span className="kbd">F</span> this sheet</span>
+            <span><span className="kbd">F</span> flag card</span>
+            <span><span className="kbd">?</span> this sheet</span>
           </div>
         </div>
       )}

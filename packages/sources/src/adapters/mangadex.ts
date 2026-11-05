@@ -76,7 +76,7 @@ export const mangaDexAdapter: SourceAdapter = {
 
   async browse(source: SourceDescriptor, opts: BrowseOptions = {}): Promise<RemoteManga[]> {
     const limit = Math.min(25, opts.limit ?? 20)
-    const offset = ((opts.page ?? 1) - 1) * limit
+    const offset = Math.max(0, (Math.floor(opts.page ?? 1) - 1) * limit)
     const lang = toMangaDexLanguage(source.language)
 
     const params = new URLSearchParams()
@@ -113,7 +113,11 @@ export const mangaDexAdapter: SourceAdapter = {
       }
     }
 
-    return out.sort((a, b) => (b.number ?? 0) - (a.number ?? 0) || (b.volume ?? 0) - (a.volume ?? 0))
+    // Volume first, then chapter — a volume 2 chapter 1 belongs after
+    // a volume 1 chapter 20, which a chapter-only sort gets wrong.
+    return out.sort(
+      (a, b) => (b.volume ?? 0) - (a.volume ?? 0) || (b.number ?? 0) - (a.number ?? 0),
+    )
   },
 
   async pages(_source: SourceDescriptor, chapterId: string): Promise<RemotePage[]> {

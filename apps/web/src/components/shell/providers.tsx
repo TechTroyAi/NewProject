@@ -3,6 +3,7 @@ import * as React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from './theme-provider'
 import { ServiceWorkerRegister } from './sw-register'
+import { ShelfToaster } from './toaster'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = React.useState(
@@ -15,7 +16,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   )
   return (
     <QueryClientProvider client={client}>
-      <ThemeProvider>{children}</ThemeProvider>
+      <ThemeProvider>
+        {children}
+        <ShelfToaster />
+      </ThemeProvider>
       <ServiceWorkerRegister />
     </QueryClientProvider>
   )

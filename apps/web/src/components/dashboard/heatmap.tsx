@@ -1,6 +1,7 @@
 'use client'
 import * as React from 'react'
 import { cn } from '@/lib/utils'
+import { localDateKey } from '@shelf/shared'
 
 export function Heatmap({
   data,
@@ -14,21 +15,24 @@ export function Heatmap({
   const columns = React.useMemo(() => {
     const out: { date: string; value: number }[][] = []
     const today = new Date()
-    const end = new Date(today)
-    end.setDate(end.getDate() - end.getDay() + 6) // end of current week (Saturday)
-    const start = new Date(end)
-    start.setDate(start.getDate() - (weeks * 7 - 1))
+    // Start on the Sunday of the week `weeks - 1` weeks back, so the
+    // grid runs Sunday → Saturday and ends on the current week.
+    const start = new Date(today)
+    start.setDate(today.getDate() - today.getDay() - (weeks - 1) * 7)
 
     for (let w = 0; w < weeks; w++) {
       const col: { date: string; value: number }[] = []
       for (let d = 0; d < 7; d++) {
         const cur = new Date(start)
         cur.setDate(start.getDate() + w * 7 + d)
+        // The activity table stores a plain calendar date, so the key
+        // has to be the *local* date. `toISOString()` converts to UTC,
+        // which shifts every cell by a day east of Greenwich.
+        const key = localDateKey(cur)
         if (cur > today) {
-          col.push({ date: cur.toISOString().slice(0, 10), value: -1 })
+          col.push({ date: key, value: -1 })
           continue
         }
-        const key = cur.toISOString().slice(0, 10)
         const rec = byDate.get(key)
         col.push({ date: key, value: (rec?.pages ?? 0) + (rec?.reviews ?? 0) })
       }

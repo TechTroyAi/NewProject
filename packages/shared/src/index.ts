@@ -229,6 +229,11 @@ export function safeFileName(name: string): string {
 export const UploadCompleteSchema = z.object({
   itemId: z.string().uuid(),
   path: z.string().min(1),
+  /**
+   * The sha-256 the browser computed. It is persisted on the item so
+   * the duplicate check in `/api/upload/init` keeps working.
+   */
+  hash: z.string().regex(/^[a-f0-9]{64}$/i, 'expected a sha-256 hex digest').optional(),
 })
 export type UploadComplete = z.infer<typeof UploadCompleteSchema>
 
@@ -338,6 +343,20 @@ export function interleaveBySeries(
     if (!progressed) break
   }
   return out
+}
+
+/**
+ * `YYYY-MM-DD` for a date in the local timezone.
+ *
+ * `toISOString()` converts to UTC, which shifts the day for anyone
+ * east of Greenwich — the activity table stores plain calendar dates,
+ * so every lookup has to use the local one.
+ */
+export function localDateKey(d: Date = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 export const WIKILINK_RE = /\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]/g

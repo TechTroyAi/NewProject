@@ -5,9 +5,11 @@ import {
   parseWikilinks,
   parseAnchor,
   parseFilename,
+  localDateKey,
   IngestionSchema,
   QuizGenerationSchema,
   ChatScopeSchema,
+  UploadCompleteSchema,
 } from '@shelf/shared'
 
 import { resolveWikilinks } from '../apps/web/src/lib/wikilinks.ts'
@@ -340,5 +342,65 @@ describe('spoiler guard', () => {
         assert.ok(read - 1 <= item.page_count - 1)
       }
     }
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   Local calendar dates
+   ══════════════════════════════════════════════════════════════ */
+
+describe('localDateKey', () => {
+  test('formats a date in the local timezone, not UTC', () => {
+    // 23:30 local on the 5th is the 5th here even when UTC has already
+    // rolled over to the 6th (UTC+8 and later).
+    const d = new Date(2026, 0, 5, 23, 30, 0)
+    assert.equal(localDateKey(d), '2026-01-05')
+  })
+
+  test('pads month and day', () => {
+    assert.equal(localDateKey(new Date(2026, 8, 7)), '2026-09-07')
+  })
+
+  test('never shifts a day because of the timezone offset', () => {
+    for (let day = 1; day <= 28; day++) {
+      const d = new Date(2026, 5, day, 12, 0, 0)
+      const key = localDateKey(d)
+      assert.equal(key, `2026-06-${String(day).padStart(2, '0')}`)
+    }
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   Upload contract
+   ══════════════════════════════════════════════════════════════ */
+
+describe('UploadCompleteSchema', () => {
+  test('accepts a sha-256 hash', () => {
+    const hash = 'a'.repeat(64)
+    const parsed = UploadCompleteSchema.safeParse({
+      itemId: '11111111-1111-4111-8111-111111111111',
+      path: 'originals/u/11111111-1111-4111-8111-111111111111/book.pdf',
+      hash,
+    })
+    assert.ok(parsed.success)
+    assert.equal(parsed.data.hash, hash)
+  })
+
+  test('rejects a malformed hash', () => {
+    const parsed = UploadCompleteSchema.safeParse({
+      itemId: '11111111-1111-4111-8111-111111111111',
+      path: 'originals/u/11111111-1111-4111-8111-111111111111/book.pdf',
+      hash: 'not-a-hash',
+    })
+    assert.equal(parsed.success, false)
+  })
+
+  test('the hash stays optional so older clients still work', () => {
+    const parsed = UploadCompleteSchema.safeParse({
+      itemId: '11111111-1111-4111-8111-111111111111',
+      path: 'originals/u/11111111-1111-4111-8111-111111111111/book.pdf',
+    })
+    assert.ok(parsed.success)
+    assert.equal(parsed.data.hash, undefined)
   })
 })

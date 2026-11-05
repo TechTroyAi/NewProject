@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/primitives'
 import { Modal } from '@/components/ui/overlay'
+import { toast } from 'sonner'
 
 interface RemoteManga {
   id: string
@@ -41,6 +42,7 @@ export function SourceBrowser({ sourceKey, sourceName, language }: { sourceKey: 
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [importing, setImporting] = React.useState(false)
   const [done, setDone] = React.useState<string | null>(null)
+  const chaptersToken = React.useRef(0)
 
   React.useEffect(() => {
     let cancelled = false
@@ -71,16 +73,30 @@ export function SourceBrowser({ sourceKey, sourceName, language }: { sourceKey: 
     setChapters([])
     setSelected(new Set())
     setChaptersLoading(true)
+    // Token so a slow response for a previously opened title cannot
+    // overwrite the one the user is looking at now.
+    const token = ++chaptersToken.current
     try {
       const res = await fetch(
         `/api/sources/chapters?source=${encodeURIComponent(sourceKey)}&mangaId=${encodeURIComponent(m.id)}`,
       )
-      const json = await res.json()
-      setChapters(json.chapters ?? [])
+      const json = await res.json().catch(() => null)
+      if (token !== chaptersToken.current) return
+      if (!res.ok) {
+        setChapters([])
+        toast.error(json?.error ?? `Could not load chapters (${res.status})`)
+        return
+      }
+      const list: RemoteChapter[] = json?.chapters ?? []
+      setChapters(list)
       // Default to the newest 10.
-      setSelected(new Set((json.chapters ?? []).slice(0, 10).map((c: RemoteChapter) => c.id)))
+      setSelected(new Set(list.slice(0, 10).map((c) => c.id)))
+    } catch {
+      if (token !== chaptersToken.current) return
+      setChapters([])
+      toast.error('Could not reach the source.')
     } finally {
-      setChaptersLoading(false)
+      if (token === chaptersToken.current) setChaptersLoading(false)
     }
   }
 
@@ -111,12 +127,13 @@ export function SourceBrowser({ sourceKey, sourceName, language }: { sourceKey: 
           })),
         }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'import failed')
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(json?.error ?? `import failed (${res.status})`)
       setDone(json.seriesId)
+      toast.success(`${chosen.length} chapter${chosen.length === 1 ? '' : 's'} added to your shelf`)
     } catch (err) {
       setDone(null)
-      alert(String(err))
+      toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setImporting(false)
     }

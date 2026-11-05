@@ -19,7 +19,7 @@ import {
   resolveProvider,
   withModelFallback,
 } from './ai-provider'
-import { DEMO_USER_ID, demoCards, demoItems, demoNotes, demoProgress, mockPageImage } from './demo'
+import { demoCards, demoItems, demoNotes, demoProgress, mockPageImage } from './demo'
 
 /* ══════════════════════════════════════════════════════════════
    AI layer.

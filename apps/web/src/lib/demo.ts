@@ -13,6 +13,7 @@ import type {
   Series,
   ShelfLink,
 } from '@shelf/shared'
+import { localDateKey } from '@shelf/shared'
 
 export const DEMO_USER_ID = '00000000-0000-4000-8000-000000000001'
 export const DEMO_USER_NAME = 'Troy'
@@ -533,7 +534,7 @@ export const demoActivity: { date: string; pages: number; reviews: number }[] = 
     const weekend = d.getDay() === 0 || d.getDay() === 6 ? 0.55 : 1
     const pages = Math.round(wave * 26 * weekend)
     const reviews = Math.round(wave * 14 * weekend)
-    return { date: d.toISOString().slice(0, 10), pages, reviews }
+    return { date: localDateKey(d), pages, reviews }
   },
 )
 

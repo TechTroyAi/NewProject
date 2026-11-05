@@ -81,19 +81,41 @@ export function GraphView({
     return () => ro.disconnect()
   }, [height])
 
+  // The shape of the graph — not the array identity. A parent may hand
+  // us a freshly built array on every render, and restarting the
+  // simulation each time would leave it permanently unsettled.
+  const graphSig = React.useMemo(
+    () =>
+      `${nodes.map((n) => n.id).join('|')}#${edges
+        .map((e) => `${e.source}>${e.target}:${e.kind}`)
+        .join('|')}`,
+    [nodes, edges],
+  )
+  const nodesRef = React.useRef(nodes)
+  nodesRef.current = nodes
+  const edgesRef = React.useRef(edges)
+  edgesRef.current = edges
+  const sizeRef = React.useRef(size)
+  sizeRef.current = size
+
   React.useEffect(() => {
+    const nodes = nodesRef.current
+    const edges = edgesRef.current
+    const { w, h } = sizeRef.current
+
     const sims: Sim[] = nodes.map((n, i) => {
-      const angle = (i / nodes.length) * Math.PI * 2
+      const angle = (i / Math.max(1, nodes.length)) * Math.PI * 2
       const radius = compact ? 70 : 130
       return {
         id: n.id,
-        x: size.w / 2 + Math.cos(angle) * radius,
-        y: size.h / 2 + Math.sin(angle) * radius,
+        x: w / 2 + Math.cos(angle) * radius,
+        y: h / 2 + Math.sin(angle) * radius,
       }
     })
 
+    const ids = new Set(sims.map((s) => s.id))
     const links = edges
-      .filter((e) => sims.some((s) => s.id === e.source) && sims.some((s) => s.id === e.target))
+      .filter((e) => ids.has(e.source) && ids.has(e.target))
       .map((e) => ({ source: e.source, target: e.target, kind: e.kind }))
 
     const sim = forceSimulation(sims)
@@ -105,20 +127,35 @@ export function GraphView({
           .strength(compact ? 0.5 : 0.35),
       )
       .force('charge', forceManyBody().strength(compact ? -110 : -190))
-      .force('center', forceCenter(size.w / 2, size.h / 2))
+      .force('center', forceCenter(w / 2, h / 2))
       .force('collide', forceCollide<Sim>().radius(compact ? 12 : 20))
       .alphaDecay(0.045)
 
     simRef.current = sim as unknown as Simulation<Sim, undefined>
+
+    // One React update per animation frame, not per simulation tick.
+    let raf = 0
     sim.on('tick', () => {
-      setPositions(new Map(sims.map((s) => [s.id, { ...s }])))
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        setPositions(new Map(sims.map((s) => [s.id, { ...s }])))
+      })
     })
 
     return () => {
+      if (raf) cancelAnimationFrame(raf)
       sim.stop()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, edges, size.w, size.h, compact])
+  }, [graphSig, compact])
+
+  // Resizing must not restart the layout — just re-centre it.
+  React.useEffect(() => {
+    const sim = simRef.current
+    if (!sim) return
+    sim.force('center', forceCenter(size.w / 2, size.h / 2))
+    sim.alpha(0.25).restart()
+  }, [size.w, size.h])
 
   const nodeById = React.useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
 

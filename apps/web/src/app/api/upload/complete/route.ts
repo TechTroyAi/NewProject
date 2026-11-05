@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'invalid payload' }, { status: 400 })
   }
-  const { itemId, path } = parsed.data
+  const { itemId, path, hash } = parsed.data
 
   if (IS_DEMO) {
     return NextResponse.json({ ok: true, itemId, queued: ['sniff', 'convert', 'ocr', 'embed', 'summarize'] })
@@ -38,7 +38,8 @@ export async function POST(req: Request) {
     type: fileName.split('.').pop() ?? 'unknown',
     title: fileName,
     original_path: path,
-    file_hash: null,
+    // Persisted so `/api/upload/init` can recognise a re-uploaded file.
+    file_hash: hash ?? null,
     status: 'uploaded',
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

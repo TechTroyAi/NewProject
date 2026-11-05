@@ -153,6 +153,58 @@ export function GlobalDrop() {
 
 /* ─── Upload pipeline (client half) ──────────────────────────── */
 
+/**
+ * Follow an item's pipeline over server-sent events.
+ *
+ * The worker writes `jobs.progress` as it converts, OCRs and embeds;
+ * `/api/jobs/stream` turns that into an event stream. If the stream
+ * cannot be reached the upload still counts as queued — the item will
+ * show up in the library once the worker is done.
+ */
+async function followProgress(
+  itemId: string,
+  onEvent: (evt: { type: string; progress?: number; stage?: string; error?: string }) => void,
+): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(`/api/jobs/stream?itemId=${encodeURIComponent(itemId)}`, {
+      headers: { accept: 'text/event-stream' },
+    })
+  } catch {
+    return
+  }
+  if (!res.ok || !res.body) return
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    // SSE frames are separated by a blank line.
+    let idx = buffer.indexOf('\n\n')
+    while (idx !== -1) {
+      const frame = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 2)
+      const dataLine = frame.split('\n').find((l) => l.startsWith('data:'))
+      if (dataLine) {
+        let evt: { type: string; progress?: number; stage?: string; error?: string } | null = null
+        try {
+          evt = JSON.parse(dataLine.slice(5).trim())
+        } catch {
+          /* ignore a malformed frame */
+        }
+        // Called outside the parse guard — a failure here has to
+        // abort the stream, not be swallowed as a bad frame.
+        if (evt) onEvent(evt)
+      }
+      idx = buffer.indexOf('\n\n')
+    }
+  }
+}
+
 async function enqueue(
   file: File,
   add: (t: UploadTask) => void,
@@ -170,11 +222,20 @@ async function enqueue(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: file.name, size: file.size, mime: file.type, hash }),
     })
-    const init = await initRes.json()
+    const init = await initRes.json().catch(() => null)
 
-    if (init.duplicate) {
+    // A failed init must not look like a success — check the status.
+    if (!initRes.ok) {
+      throw new Error(init?.error ?? `upload could not start (${initRes.status})`)
+    }
+
+    if (init?.duplicate) {
       update(id, { status: 'done', progress: 1, detail: 'already in your library' })
       return
+    }
+
+    if (!init?.itemId || !init?.path) {
+      throw new Error('upload could not start')
     }
 
     // Upload straight to storage via the presigned URL when one is issued.
@@ -197,14 +258,29 @@ async function enqueue(
       }
     }
 
-    await fetch('/api/upload/complete', {
+    const completeRes = await fetch('/api/upload/complete', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ itemId: init.itemId, path: init.path ?? `originals/${file.name}` }),
+      body: JSON.stringify({ itemId: init.itemId, path: init.path, hash }),
     })
+    if (!completeRes.ok) {
+      const body = await completeRes.json().catch(() => null)
+      throw new Error(body?.error ?? `upload could not be completed (${completeRes.status})`)
+    }
 
     update(id, { status: 'processing', progress: 0.85, detail: 'converting pages · running OCR' })
-    await new Promise((r) => setTimeout(r, 1600))
+    // Real progress from the worker, over SSE.
+    await followProgress(init.itemId, (evt) => {
+      if (evt.type === 'progress') {
+        const pct = 0.85 + 0.15 * ((evt.progress ?? 0) / 100)
+        update(id, {
+          progress: Math.min(0.99, pct),
+          detail: evt.stage ? `${evt.stage} · ${evt.progress ?? 0}%` : 'processing',
+        })
+      } else if (evt.type === 'error') {
+        throw new Error(evt.error ?? 'processing failed')
+      }
+    })
     update(id, { status: 'done', progress: 1, detail: 'ready' })
   } catch (err) {
     update(id, { status: 'error', progress: 0, error: String(err) })
