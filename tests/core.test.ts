@@ -17,6 +17,9 @@ import {
   mergeSettings,
   findCorrectOption,
   normaliseMcq,
+  TRASH_RETENTION_DAYS,
+  trashDaysLeft,
+  isTrashExpired,
 } from '@shelf/shared'
 
 import { resolveWikilinks } from '../apps/web/src/lib/wikilinks.ts'
@@ -610,5 +613,35 @@ describe('normaliseMcq', () => {
   test('drops empty options', () => {
     const out = normaliseMcq({ type: 'mcq', answer: 'A', options: ['A', '', '  ', 'B'] })
     assert.deepEqual(out.options, ['A', 'B'])
+  })
+})
+
+describe('trash', () => {
+  test('an entry keeps its days for the whole window', () => {
+    const now = new Date('2026-11-04T12:00:00Z')
+    const fresh = new Date('2026-11-04T11:00:00Z')
+    assert.equal(trashDaysLeft(fresh, now), 30)
+  })
+
+  test('the days left count down as the entry ages', () => {
+    const now = new Date('2026-11-04T12:00:00Z')
+    const tenDaysAgo = new Date('2026-10-25T12:00:00Z')
+    assert.equal(trashDaysLeft(tenDaysAgo, now), 20)
+  })
+
+  test('an entry is expired once the window has passed', () => {
+    const now = new Date('2026-11-04T12:00:00Z')
+    const old = new Date('2026-09-01T12:00:00Z')
+    assert.equal(trashDaysLeft(old, now), 0)
+    assert.equal(isTrashExpired(old, now), true)
+    assert.equal(isTrashExpired(now, now), false)
+  })
+
+  test('a broken date is expired rather than a crash', () => {
+    assert.equal(trashDaysLeft('not a date', new Date()), 0)
+  })
+
+  test('the window is 30 days', () => {
+    assert.equal(TRASH_RETENTION_DAYS, 30)
   })
 })

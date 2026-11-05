@@ -662,3 +662,32 @@ export function toPgVector(embedding: number[] | null | undefined): string | nul
   if (!embedding || !embedding.length) return null
   return `[${embedding.join(',')}]`
 }
+
+/* ─── trash ─────────────────────────────────────────────────── */
+
+/** What can end up in the trash. */
+export const TRASH_ENTITY_TYPES = ['note', 'item', 'deck', 'card', 'clip'] as const
+export type TrashEntityType = (typeof TRASH_ENTITY_TYPES)[number]
+
+/** How long something stays in the trash before it is purged for good. */
+export const TRASH_RETENTION_DAYS = 30
+
+/**
+ * How many days an entry has left in the trash.
+ *
+ * Returns 0 once the entry is past its retention window, so the UI
+ * can say "expired" rather than "1 day left" for something that is
+ * about to disappear.
+ */
+export function trashDaysLeft(deletedAt: string | Date, now: Date = new Date()): number {
+  const then = typeof deletedAt === 'string' ? new Date(deletedAt) : deletedAt
+  const ms = then.getTime()
+  if (!Number.isFinite(ms)) return 0
+  const elapsedDays = (now.getTime() - ms) / 86_400_000
+  return Math.max(0, Math.ceil(TRASH_RETENTION_DAYS - elapsedDays))
+}
+
+/** Is a trash entry past its retention window? */
+export function isTrashExpired(deletedAt: string | Date, now: Date = new Date()): boolean {
+  return trashDaysLeft(deletedAt, now) === 0
+}

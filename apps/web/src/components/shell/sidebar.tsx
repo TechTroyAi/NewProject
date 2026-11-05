@@ -3,6 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
+  Archive,
   BookOpen,
   Boxes,
   Compass,
@@ -32,6 +33,7 @@ const NAV = [
   { href: '/app/sources', label: 'Sources', icon: Compass },
   { href: '/app/inbox', label: 'Inbox', icon: Inbox, count: 'inbox' as const },
   { href: '/app/stats', label: 'Stats', icon: ChartNoAxesColumn },
+  { href: '/app/trash', label: 'Trash', icon: Archive },
   { href: '/app/settings/general', label: 'Settings', icon: Settings },
 ]
 

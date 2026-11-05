@@ -3,6 +3,7 @@ import { Scissors } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { mediaUrl } from '@/lib/media'
+import { DeleteToTrashButton } from '@/components/trash/delete-button'
 
 export interface ClipViewData {
   id: string
@@ -74,6 +75,13 @@ export function ClipView({ clip }: { clip: ClipViewData }) {
               </span>
             </Link>
           )}
+          <span className="flex-1" />
+          <DeleteToTrashButton
+            entityType="clip"
+            entityId={clip.id}
+            title={`Clip on p.${clip.page_idx + 1}`}
+            label="Delete this clip"
+          />
         </div>
       </CardContent>
     </Card>

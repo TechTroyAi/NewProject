@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/primitives'
 import { resolveWikilinks, type ResolvedLink } from '@/lib/wikilinks'
+import { DeleteToTrashButton } from '@/components/trash/delete-button'
 import { renderMarkdown } from '@/lib/markdown'
 import { clearDraft, loadDraft, saveDraft } from '@/lib/drafts'
 
@@ -342,6 +343,14 @@ export function NoteEditor({
             </button>
           ))}
         </div>
+        {note.id && note.id !== 'new' && (
+          <DeleteToTrashButton
+            entityType="note"
+            entityId={note.id}
+            title={title || 'Untitled'}
+            redirectTo="/app/notes"
+          />
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1">

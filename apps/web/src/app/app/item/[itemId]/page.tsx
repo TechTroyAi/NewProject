@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { getItemById, getNotes, getPagesForItem, getProgressMap, getSeriesList, listClips } from '@/lib/data'
 import { mockCover } from '@/lib/demo'
 import { mediaUrl } from '@/lib/media'
+import { DeleteToTrashButton } from '@/components/trash/delete-button'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,11 +85,19 @@ export default async function ItemPage({ params }: { params: { itemId: string } 
             </div>
           )}
 
-          <Link href={`/app/read/${item.id}?p=${p?.current_page ?? 0}`} className="mt-5 inline-block">
-            <Button>
-              <Play /> {p && !p.finished ? `Resume — p.${p.current_page + 1}` : 'Start reading'}
-            </Button>
-          </Link>
+          <div className="mt-5 flex items-center gap-2">
+            <Link href={`/app/read/${item.id}?p=${p?.current_page ?? 0}`} className="inline-block">
+              <Button>
+                <Play /> {p && !p.finished ? `Resume — p.${p.current_page + 1}` : 'Start reading'}
+              </Button>
+            </Link>
+            <DeleteToTrashButton
+              entityType="item"
+              entityId={item.id}
+              title={item.title}
+              redirectTo={s ? `/app/library/${s.id}` : '/app/library'}
+            />
+          </div>
         </div>
       </div>
 

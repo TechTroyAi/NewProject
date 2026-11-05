@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { StatTile } from '@/components/dashboard/stat-tile'
 import { getAllCards, getDecks, getNotes, getStats } from '@/lib/data'
+import { DeleteToTrashButton } from '@/components/trash/delete-button'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,10 +63,10 @@ export default async function QuizPage() {
                 const deckDue = deckCards.filter((c) => c.due <= now && c.status === 'active')
                 const note = notes.find((n) => n.id === d.note_id)
                 return (
-                  <li key={d.id}>
+                  <li key={d.id} className="flex items-center gap-1 pr-2 transition hover:bg-raised/40">
                     <Link
                       href={d.note_id ? `/app/notes/${d.note_id}` : '/app/quiz'}
-                      className="flex items-center gap-3 px-4 py-3 transition hover:bg-raised/40"
+                      className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3"
                     >
                       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent">
                         <Layers className="size-4" />
@@ -83,6 +84,12 @@ export default async function QuizPage() {
                         <Badge tone="good">clear</Badge>
                       )}
                     </Link>
+                    <DeleteToTrashButton
+                      entityType="deck"
+                      entityId={d.id}
+                      title={d.title}
+                      className="shrink-0"
+                    />
                   </li>
                 )
               })}
