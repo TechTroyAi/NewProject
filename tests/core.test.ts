@@ -20,6 +20,7 @@ import {
   TRASH_RETENTION_DAYS,
   trashDaysLeft,
   isTrashExpired,
+  fuseRankings,
 } from '@shelf/shared'
 
 import { resolveWikilinks } from '../apps/web/src/lib/wikilinks.ts'
@@ -79,6 +80,14 @@ describe('parseAnchor', () => {
 
   test('handles a null anchor', () => {
     assert.deepEqual(parseAnchor(null), { chapter: null, page: null })
+  })
+
+  test('a spelled-out chapter does not become the page', () => {
+    assert.deepEqual(parseAnchor('Chapter 184 p12'), { chapter: 184, page: 12 })
+  })
+
+  test('a bare number with no chapter is a page', () => {
+    assert.deepEqual(parseAnchor('14'), { chapter: null, page: 14 })
   })
 })
 
@@ -643,5 +652,28 @@ describe('trash', () => {
 
   test('the window is 30 days', () => {
     assert.equal(TRASH_RETENTION_DAYS, 30)
+  })
+})
+
+describe('fuseRankings', () => {
+  const key = (row: { id: string }) => row.id
+
+  test('a row both lists like comes first', () => {
+    const keyword = [{ id: 'a' }, { id: 'b' }]
+    const semantic = [{ id: 'b' }, { id: 'c' }]
+    const out = fuseRankings(keyword, semantic, 10, key)
+    assert.equal(out[0].id, 'b')
+  })
+
+  test('one list alone is used as it is', () => {
+    const keyword = [{ id: 'a' }, { id: 'b' }]
+    assert.deepEqual(fuseRankings(keyword, [], 10, key), keyword)
+    assert.deepEqual(fuseRankings([], keyword, 10, key), keyword)
+  })
+
+  test('the limit is respected', () => {
+    const keyword = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+    const semantic = [{ id: 'd' }]
+    assert.equal(fuseRankings(keyword, semantic, 2, key).length, 2)
   })
 })

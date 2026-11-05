@@ -546,12 +546,19 @@ export function parseWikilinks(md: string): ParsedWikilink[] {
 /** `[[Berserk#Ch21 p14]]` → `{ itemHint: 'Berserk', chapter: 21, page: 14 }` */
 export function parseAnchor(anchor: string | null) {
   if (!anchor) return { chapter: null as number | null, page: null as number | null }
-  const page = anchor.match(/\bp?(\d+)\b/i)
-  const chapter = anchor.match(/\b(?:ch|chapter|vol|v)[\s.]*(\d+)/i)
-  return {
-    chapter: chapter ? Number(chapter[1]) : null,
-    page: page ? Number(page[1]) : null,
+  const chapterMatch = anchor.match(/\b(?:ch|chapter|vol|v)[\s.]*(\d+)/i)
+  // The page has to be marked as one. "Chapter 184 p12" has two
+  // numbers in it, and taking the first one would open the reader on
+  // page 184 instead of page 12.
+  const pageMatch = anchor.match(/\b(?:p|page)[\s.]*(\d+)\b/i)
+  const chapter = chapterMatch ? Number(chapterMatch[1]) : null
+  let page = pageMatch ? Number(pageMatch[1]) : null
+  if (page === null && chapter === null) {
+    // Nothing claimed the number, so a bare one is a page.
+    const bare = anchor.match(/\b(\d+)\b/)
+    page = bare ? Number(bare[1]) : null
   }
+  return { chapter, page }
 }
 
 /* ─── Filename intelligence (mirrors the worker stage) ────────── */
@@ -690,4 +697,45 @@ export function trashDaysLeft(deletedAt: string | Date, now: Date = new Date()):
 /** Is a trash entry past its retention window? */
 export function isTrashExpired(deletedAt: string | Date, now: Date = new Date()): boolean {
   return trashDaysLeft(deletedAt, now) === 0
+}
+
+/* ─── rank fusion ────────────────────────────────────────────── */
+
+/**
+ * Merge two rankings with reciprocal rank fusion.
+ *
+ * Each list is worth `1 / (60 + rank)` for the row at that rank, so a
+ * row that both lists like comes out on top. The two scores are not
+ * comparable — one is a ts_rank, the other a cosine distance — which
+ * is exactly why RRF is used here.
+ */
+export function fuseRankings<T>(
+  keyword: T[],
+  semantic: T[],
+  limit: number,
+  keyOf: (row: T) => string,
+): T[] {
+  if (!semantic.length) return keyword.slice(0, limit)
+  if (!keyword.length) return semantic.slice(0, limit)
+
+  const fused = new Map<string, { row: T; rrf: number }>()
+  const take = (list: T[], weight: number) => {
+    list.forEach((row, index) => {
+      const key = keyOf(row)
+      const existing = fused.get(key)
+      const rrf = weight / (60 + index + 1)
+      if (existing) {
+        existing.rrf += rrf
+      } else {
+        fused.set(key, { row, rrf })
+      }
+    })
+  }
+  take(keyword, 1)
+  take(semantic, 1)
+
+  return [...fused.values()]
+    .sort((a, b) => b.rrf - a.rrf)
+    .slice(0, limit)
+    .map((entry) => entry.row)
 }

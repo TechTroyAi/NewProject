@@ -7,6 +7,7 @@ import {
   QuizGenerationSchema,
   ShortAnswerGradeSchema,
   type ChatScope,
+  fuseRankings,
   toPgVector,
   type ProfileSettings,
 } from '@shelf/shared'
@@ -187,6 +188,8 @@ export async function aiBudgetAvailable(): Promise<AiBudget> {
  */
 export async function retrieveWithSpoilerGuard(opts: {
   scope: ChatScope
+  /** The question being answered — this is what the keyword search ranks on. */
+  query?: string
   queryEmbedding?: number[] | null
   limit?: number
 }): Promise<{ chunks: RetrievedChunk[]; notes: RetrievedNote[]; guard: string }> {
@@ -203,24 +206,48 @@ export async function retrieveWithSpoilerGuard(opts: {
   const scopeIds = await resolveScopeItemIds(opts.scope)
 
   // ── chunks: keyword + vector, spoiler-filtered ──────────────
-  const { data: chunks, error } = await sb.rpc('retrieve_guarded', {
+  // Two rankings, merged with RRF: the keyword one finds the words
+  // the question uses, the vector one finds the pages that mean the
+  // same thing. The vector half was never called before, so the
+  // retrieval was keyword-only in practice.
+  const keyword = await sb.rpc('retrieve_guarded', {
     p_item_ids: scopeIds,
-    p_query: opts.scope.noteId ?? '',
-    p_query_embedding: toPgVector(opts.queryEmbedding),
+    // The keyword half of the retrieval ranks on the question. It used
+    // to rank on the note id, which matched nothing.
+    p_query: opts.query ?? '',
     p_limit: limit,
   })
-  if (error) throw error
+  if (keyword.error) throw keyword.error
+
+  const semantic = opts.queryEmbedding
+    ? await sb.rpc('retrieve_guarded_semantic', {
+        p_item_ids: scopeIds,
+        p_query_embedding: toPgVector(opts.queryEmbedding),
+        p_limit: limit,
+      })
+    : { data: [], error: null }
+
+  const chunkKey = (row: RetrievedChunk) =>
+    `${row.item_id}:${row.page_start}:${row.page_end}:${row.content.slice(0, 80)}`
+  const fused = fuseRankings(
+    (keyword.data ?? []) as RetrievedChunk[],
+    (semantic.data ?? []) as RetrievedChunk[],
+    limit,
+    chunkKey,
+  )
+  // The fused score is the fused rank; keep the readable fields.
+  const chunks: RetrievedChunk[] = fused.map((row) => ({ ...row, score: 1 }))
 
   // ── notes: the user's own writing, always in scope ──────────
   const { data: notes } = await sb.rpc('retrieve_notes', {
-    p_query: opts.scope.noteId ?? '',
+    p_query: opts.query ?? '',
     p_query_embedding: toPgVector(opts.queryEmbedding),
     p_limit: 6,
   })
 
   const guard = await describeGuard(opts.scope)
   return {
-    chunks: (chunks ?? []) as RetrievedChunk[],
+    chunks,
     notes: (notes ?? []) as RetrievedNote[],
     guard,
   }
@@ -377,7 +404,11 @@ export async function* chatStream(opts: {
   // Embed the question so retrieval is semantic as well as keyword.
   // A failed embedding just means the SQL falls back to keyword rank.
   const queryEmbedding = await embedText(opts.question, await providerEnv())
-  const retrieved = await retrieveWithSpoilerGuard({ scope: opts.scope, queryEmbedding })
+  const retrieved = await retrieveWithSpoilerGuard({
+    scope: opts.scope,
+    query: opts.question,
+    queryEmbedding,
+  })
   const sources = buildSources(retrieved.chunks, retrieved.notes)
 
   yield { type: 'sources', sources }
