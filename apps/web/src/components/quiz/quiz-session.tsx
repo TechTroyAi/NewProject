@@ -18,7 +18,8 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/primitives'
 import { useHotkeys } from '@/lib/hotkeys'
 import { RATING_LABELS } from '@/lib/fsrs'
-import type { Card } from '@shelf/shared'
+import { toast } from 'sonner'
+import { findCorrectOption, type Card } from '@shelf/shared'
 
 const TYPE_LABEL: Record<string, string> = {
   flashcard: 'Flashcard',
@@ -46,6 +47,19 @@ export function QuizSession({ cards }: { cards: Card[] }) {
   const [grading, setGrading] = React.useState(false)
 
   const card = queue[index]
+
+  /**
+   * Which option is the correct one.
+   *
+   * It is found by matching the card's answer against the options, not
+   * by assuming it is the first one — a card that was written by hand
+   * (or by a model that ignored the rule) would otherwise be marked
+   * wrong.
+   */
+  const correctIndex = React.useMemo(
+    () => (card?.type === 'mcq' ? findCorrectOption(card.options, card.answer) : 0),
+    [card],
+  )
   // The queue grows when a missed card is re-queued, so the counter
   // has to follow it — otherwise it reads "5 / 3".
   const total = queue.length
@@ -65,11 +79,27 @@ export function QuizSession({ cards }: { cards: Card[] }) {
       setGraded(null)
       setShortAnswer('')
 
+      // Optimistic: the card is already off the screen. If the review
+      // does not save, the card comes back and the user is told —
+      // a silently dropped review would lose the review forever.
       void fetch('/api/quiz/answer', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ cardId: card.id, rating }),
-      }).catch(() => {})
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`review not saved (${res.status})`)
+        })
+        .catch((err) => {
+          setQueue((q) => {
+            // Put the card back at the end so it is asked again.
+            if (q.some((c) => c.id === card.id)) return q
+            return [...q, card]
+          })
+          toast.error(
+            err instanceof Error ? err.message : 'That review could not be saved.',
+          )
+        })
 
       if (rating === 1) {
         // Re-queue "Again" cards at the end of the session.
@@ -78,6 +108,12 @@ export function QuizSession({ cards }: { cards: Card[] }) {
     },
     [card, index],
   )
+
+  // The flag belongs to the card on screen, so it follows the card.
+  React.useEffect(() => {
+    setFlagged(card?.status === 'flagged')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card?.id])
 
   const toggleFlag = React.useCallback(async () => {
     if (!card || flagBusy) return
@@ -232,7 +268,7 @@ export function QuizSession({ cards }: { cards: Card[] }) {
               <div className="mt-5 space-y-2">
                 {card.options.map((opt, i) => {
                   const isPicked = selected === i
-                  const isCorrect = i === 0
+                  const isCorrect = i === correctIndex
                   return (
                     <button
                       key={i}

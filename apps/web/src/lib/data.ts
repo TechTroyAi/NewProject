@@ -6,6 +6,7 @@ import {
   kindOfItem,
   localDateKey,
   mergeSettings,
+  normaliseMcq,
   similarity,
   toPgVector,
 } from '@shelf/shared'
@@ -539,14 +540,15 @@ export async function createDeckFromCards(opts: {
       const id = `c-${deckId}-${i}`
       cardIds.push(id)
       const empty = newFsrsCard()
+      const mcq = normaliseMcq(c)
       demoCards.push({
         id,
         user_id: userId,
         deck_id: deckId,
         type: c.type as Card['type'],
         question: c.question,
-        answer: c.answer,
-        options: c.options ?? null,
+        answer: mcq.answer,
+        options: mcq.options,
         explanation: c.explanation ?? null,
         source_note: opts.noteId ?? null,
         source_item: opts.itemId ?? null,
@@ -584,14 +586,15 @@ export async function createDeckFromCards(opts: {
   const now = new Date().toISOString()
   const rows = opts.cards.map((c) => {
     const empty = newFsrsCard()
+    const mcq = normaliseMcq(c)
     return {
       id: randomUUID(),
       user_id: userId,
       deck_id: deck.id,
       type: c.type,
       question: c.question,
-      answer: c.answer,
-      options: c.options ?? null,
+      answer: mcq.answer,
+      options: mcq.options,
       explanation: c.explanation ?? null,
       source_note: opts.noteId ?? null,
       source_item: opts.itemId ?? null,

@@ -15,6 +15,8 @@ import {
   safeInt,
   isUuid,
   mergeSettings,
+  findCorrectOption,
+  normaliseMcq,
 } from '@shelf/shared'
 
 import { resolveWikilinks } from '../apps/web/src/lib/wikilinks.ts'
@@ -539,5 +541,74 @@ describe('mergeSettings', () => {
     assert.deepEqual(mergeSettings({ dashboard: [{ i: 'a' }] }, { dashboard: [] }), {
       dashboard: [],
     })
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   Multiple choice
+   ══════════════════════════════════════════════════════════════ */
+
+describe('findCorrectOption', () => {
+  test('finds an exact match wherever it is', () => {
+    // The demo cards do not put the answer first.
+    assert.equal(
+      findCorrectOption(['Size', 'Weight', 'Colour', 'Borders', 'Spacing'], 'Borders'),
+      3,
+    )
+  })
+
+  test('ignores case and surrounding space', () => {
+    assert.equal(findCorrectOption(['Alpha', 'Beta'], '  beta '), 1)
+  })
+
+  test('matches when the answer contains the option', () => {
+    assert.equal(
+      findCorrectOption(
+        ['Because they produce identical traffic', 'Because a silent node looks halted'],
+        'Because a silent node looks halted — from the outside the two are the same',
+      ),
+      1,
+    )
+  })
+
+  test('falls back to the first option', () => {
+    assert.equal(findCorrectOption(['A', 'B'], 'something else'), 0)
+    assert.equal(findCorrectOption([], 'A'), 0)
+    assert.equal(findCorrectOption(null, null), 0)
+  })
+})
+
+describe('normaliseMcq', () => {
+  test('puts the correct option first', () => {
+    const out = normaliseMcq({
+      type: 'mcq',
+      answer: 'Borders',
+      options: ['Size', 'Weight', 'Colour', 'Borders'],
+    })
+    assert.equal(out.options?.[0], 'Borders')
+    assert.equal(out.answer, 'Borders')
+    assert.equal(out.options?.length, 4)
+  })
+
+  test('adds an answer that is in none of the options', () => {
+    const out = normaliseMcq({
+      type: 'mcq',
+      answer: 'Something the model paraphrased',
+      options: ['First', 'Second'],
+    })
+    assert.equal(out.options?.[0], 'Something the model paraphrased')
+    assert.equal(out.options?.length, 3)
+    assert.equal(findCorrectOption(out.options, out.answer), 0)
+  })
+
+  test('leaves a flashcard alone', () => {
+    const out = normaliseMcq({ type: 'flashcard', answer: 'An answer', options: null })
+    assert.equal(out.answer, 'An answer')
+    assert.equal(out.options, null)
+  })
+
+  test('drops empty options', () => {
+    const out = normaliseMcq({ type: 'mcq', answer: 'A', options: ['A', '', '  ', 'B'] })
+    assert.deepEqual(out.options, ['A', 'B'])
   })
 })

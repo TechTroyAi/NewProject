@@ -23,6 +23,63 @@ export const PIPELINE_STAGES = [
 export type PipelineStage = (typeof PIPELINE_STAGES)[number]
 
 /**
+ * Make a multiple-choice card consistent.
+ *
+ * The answer has to be one of the options, and the correct option has
+ * to come first — the quiz session and the grader both work that way.
+ * A card whose answer is in none of the options (the model paraphrased
+ * it) gets the answer added as the first option.
+ */
+export function normaliseMcq(card: {
+  type: string
+  answer: string
+  options?: (string | null)[] | null
+}): { answer: string; options: string[] | null } {
+  const options = (card.options ?? []).filter(
+    (o): o is string => typeof o === 'string' && !!o.trim(),
+  )
+  if (card.type !== 'mcq' || options.length === 0) {
+    return { answer: card.answer, options: (card.options ?? null) as string[] | null }
+  }
+
+  const answer = (card.answer ?? '').trim()
+  const match = options.findIndex((o) => o.trim().toLowerCase() === answer.toLowerCase())
+  if (match === -1) {
+    // The answer is in none of the options — put it there.
+    return { answer, options: [answer, ...options] }
+  }
+  const correct = options[match]
+  return { answer: correct, options: [correct, ...options.filter((_, i) => i !== match)] }
+}
+
+/**
+ * Which option of a multiple-choice card is the correct one.
+ *
+ * The answer is matched against the options rather than assuming it
+ * is the first one — a card written by hand (or by a model that
+ * ignored the rule) would otherwise be marked wrong.
+ */
+export function findCorrectOption(
+  options: (string | null | undefined)[] | null | undefined,
+  answer: string | null | undefined,
+): number {
+  const list = options ?? []
+  if (list.length === 0) return 0
+  const text = (answer ?? '').trim().toLowerCase()
+  if (!text) return 0
+
+  const exact = list.findIndex((o) => (o ?? '').trim().toLowerCase() === text)
+  if (exact !== -1) return exact
+
+  // A longer answer that contains the option still identifies it.
+  const contains = list.findIndex((o) => {
+    const value = (o ?? '').trim().toLowerCase()
+    return value.length > 0 && (text.includes(value) || value.includes(text))
+  })
+  return contains === -1 ? 0 : contains
+}
+
+/**
  * Merge a settings patch into a stored settings blob.
  *
  * The nested groups (reader, ai, quiz, notes) are merged one level

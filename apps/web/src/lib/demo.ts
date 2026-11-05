@@ -455,8 +455,10 @@ export const demoCards: Card[] = [
     { source_note: 'n-fault-models', source_item: 'i-ds-01', source_page: 8, spoiler_limit_page: 8, due: days(0) }),
   card('c2', 'd-faults', 'mcq',
     'Why is the omission fault hard to distinguish from a crash-stop?',
-    'From the outside, a node that drops messages looks identical to one that has halted.',
+    'Because a silent node is observationally equivalent to a halted one',
     {
+      // The answer has to be one of the options — otherwise there is
+      // no way to tell which option is the right one.
       options: ['Because they produce identical network traffic', 'Because a silent node is observationally equivalent to a halted one', 'Because both are caused by power loss', 'Because timeouts cannot detect either'],
       source_note: 'n-fault-models', source_item: 'i-ds-01', source_page: 9, spoiler_limit_page: 9, due: days(0),
       explanation: 'Omission is observationally equivalent to crash-stop from the perspective of other nodes.',
