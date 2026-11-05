@@ -7,6 +7,7 @@ import {
   QuizGenerationSchema,
   ShortAnswerGradeSchema,
   type ChatScope,
+  toPgVector,
 } from '@shelf/shared'
 import { IS_DEMO } from './db'
 import { getSessionClient } from './session'
@@ -155,7 +156,7 @@ export async function retrieveWithSpoilerGuard(opts: {
   const { data: chunks, error } = await sb.rpc('retrieve_guarded', {
     p_item_ids: scopeIds,
     p_query: opts.scope.noteId ?? '',
-    p_query_embedding: opts.queryEmbedding ?? null,
+    p_query_embedding: toPgVector(opts.queryEmbedding),
     p_limit: limit,
   })
   if (error) throw error
@@ -163,7 +164,7 @@ export async function retrieveWithSpoilerGuard(opts: {
   // ── notes: the user's own writing, always in scope ──────────
   const { data: notes } = await sb.rpc('retrieve_notes', {
     p_query: opts.scope.noteId ?? '',
-    p_query_embedding: opts.queryEmbedding ?? null,
+    p_query_embedding: toPgVector(opts.queryEmbedding),
     p_limit: 6,
   })
 

@@ -10,6 +10,7 @@ import {
   QuizGenerationSchema,
   ChatScopeSchema,
   UploadCompleteSchema,
+  toPgVector,
 } from '@shelf/shared'
 
 import { resolveWikilinks } from '../apps/web/src/lib/wikilinks.ts'
@@ -402,5 +403,21 @@ describe('UploadCompleteSchema', () => {
     })
     assert.ok(parsed.success)
     assert.equal(parsed.data.hash, undefined)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   pgvector formatting
+   ══════════════════════════════════════════════════════════════ */
+
+describe('toPgVector', () => {
+  test('formats an embedding as pgvector text', () => {
+    assert.equal(toPgVector([1, 2.5, -3]), '[1,2.5,-3]')
+  })
+
+  test('returns null for nothing to embed', () => {
+    assert.equal(toPgVector(null), null)
+    assert.equal(toPgVector(undefined), null)
+    assert.equal(toPgVector([]), null)
   })
 })

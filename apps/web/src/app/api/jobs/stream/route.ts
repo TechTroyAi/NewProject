@@ -10,7 +10,7 @@ const POLL_MS = 700
 /** Give up after this long — the tray falls back to a generic state. */
 const MAX_MS = 5 * 60_000
 
-const STAGES = ['sniff', 'convert', 'ocr', 'embed', 'summarize'] as const
+const STAGES = ['sniff', 'convert', 'ocr', 'chunk', 'embed', 'summarize', 'match'] as const
 
 function sse(controller: ReadableStreamDefaultController<Uint8Array>, event: string, data: unknown) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`

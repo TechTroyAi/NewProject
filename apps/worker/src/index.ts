@@ -17,6 +17,7 @@ import {
   sniffImageType,
 } from './stages/remote.js'
 import { resolveAdapter } from '@shelf/sources'
+import { parseFilename, toPgVector } from '@shelf/shared'
 import type { Job, Stage } from './types.js'
 
 /* ══════════════════════════════════════════════════════════════
@@ -111,9 +112,18 @@ async function runSniff(job: Job) {
       await finishJob(job, { status: 'done', progress: 100 })
       return
     }
+    // The file name carries the series, volume and chapter. Pull them
+    // out now so the later stages (and the library) have them.
+    const parsed = parseFilename(item.title)
     await sb
       .from('items')
-      .update({ type: result.type, status: 'processing', status_detail: null })
+      .update({
+        type: result.type,
+        status: 'processing',
+        status_detail: null,
+        volume: parsed.volume,
+        chapter: parsed.chapter,
+      })
       .eq('id', job.item_id)
     await finishJob(job, { status: 'done', progress: 100 })
   } finally {
@@ -228,8 +238,18 @@ async function runEmbed(job: Job) {
     return
   }
   const embeddings = await embedChunks(chunks)
+  if (embeddings.length !== chunks.length) {
+    throw new Error(
+      `embedding count mismatch: ${embeddings.length} vectors for ${chunks.length} chunks`,
+    )
+  }
   for (const [i, emb] of embeddings.entries()) {
-    await sb.from('chunks').update({ embedding: emb }).eq('id', chunks[i].id)
+    // pgvector reads its input as "[0.1,0.2]" — send the text form so
+    // the cast is unambiguous.
+    await sb
+      .from('chunks')
+      .update({ embedding: toPgVector(emb) })
+      .eq('id', chunks[i].id)
     await setProgress(job, Math.round(((i + 1) / embeddings.length) * 90))
   }
   await finishJob(job, { status: 'done', progress: 100 })
@@ -278,10 +298,23 @@ async function runSummarize(job: Job) {
 
 async function runMatch(job: Job) {
   const { data: item } = await sb.from('items').select('*').eq('id', job.item_id).single()
-  const match = await matchSeries(sb, job.user_id, item.title, item.type)
+
+  // The AI pass may already have placed this one — a better guess
+  // than the file name, so leave it alone.
+  if (item.series_id) {
+    await finishJob(job, { status: 'done', progress: 100 })
+    return
+  }
+
+  // Match on the series part of the file name, not the whole thing.
+  const parsed = parseFilename(item.title)
+  const match = await matchSeries(sb, job.user_id, parsed.series, item.type)
 
   if (match.seriesId) {
-    await sb.from('items').update({ series_id: match.seriesId, status: 'ready' }).eq('id', job.item_id)
+    await sb
+      .from('items')
+      .update({ series_id: match.seriesId, status: 'ready', status_detail: null })
+      .eq('id', job.item_id)
   } else {
     await sb
       .from('items')

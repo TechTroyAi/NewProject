@@ -496,3 +496,15 @@ function commonPrefix(a: string, b: string) {
   while (i < a.length && i < b.length && a[i] === b[i]) i++
   return i
 }
+
+
+/**
+ * Format an embedding as pgvector's text input: `[0.1,0.2]`.
+ *
+ * PostgREST casts a JSON array to `vector` inconsistently across
+ * versions; the text form is always right.
+ */
+export function toPgVector(embedding: number[] | null | undefined): string | null {
+  if (!embedding || !embedding.length) return null
+  return `[${embedding.join(',')}]`
+}

@@ -15,7 +15,11 @@ export async function POST(req: Request) {
   const { itemId, path, hash } = parsed.data
 
   if (IS_DEMO) {
-    return NextResponse.json({ ok: true, itemId, queued: ['sniff', 'convert', 'ocr', 'embed', 'summarize'] })
+    return NextResponse.json({
+      ok: true,
+      itemId,
+      queued: ['sniff', 'convert', 'ocr', 'chunk', 'embed', 'summarize', 'match'],
+    })
   }
 
   const sb = await getSessionClient()
@@ -36,7 +40,9 @@ export async function POST(req: Request) {
     id: itemId,
     user_id: userId,
     type: fileName.split('.').pop() ?? 'unknown',
-    title: fileName,
+    // The extension is noise in a title; the series, volume and
+    // chapter are parsed out of the rest by the worker.
+    title: fileName.replace(/\.[a-z0-9]{1,5}$/i, ''),
     original_path: path,
     // Persisted so `/api/upload/init` can recognise a re-uploaded file.
     file_hash: hash ?? null,
@@ -45,7 +51,9 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // Enqueue the pipeline stages. The worker picks these up.
-  for (const stage of ['sniff', 'convert', 'ocr', 'embed', 'summarize']) {
+  // The order matters: the chunks have to exist before they can be
+  // embedded, and the AI pass reads the OCR'd text.
+  for (const stage of ['sniff', 'convert', 'ocr', 'chunk', 'embed', 'summarize', 'match']) {
     const { error: jobError } = await sb
       .from('jobs')
       .insert({ user_id: userId, item_id: itemId, stage, status: 'queued' })
