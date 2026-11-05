@@ -11,6 +11,7 @@ import { ratingToGrade } from '../apps/web/src/lib/fsrs.ts'
 import { Rating } from 'ts-fsrs'
 import type { Card } from '@shelf/shared'
 import { renderMarkdown } from '../apps/web/src/lib/markdown.ts'
+import { sealSecret, openSecret, encryptionKey } from '../apps/web/src/lib/crypto.ts'
 
 /* ══════════════════════════════════════════════════════════════
    Upload paths
@@ -347,5 +348,56 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('```\n[[Blue Lock]]\n```', new Map())
     assert.doesNotMatch(html, /<a /)
     assert.match(html, /\[\[Blue Lock\]\]/)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════
+   Secret sealing
+   ══════════════════════════════════════════════════════════════ */
+
+describe('sealSecret / openSecret', () => {
+  const key = Buffer.alloc(32, 7)
+
+  test('round-trips a secret', () => {
+    const sealed = sealSecret('AQ.super-secret-key', key)
+    assert.notEqual(sealed.ciphertext, 'AQ.super-secret-key')
+    assert.equal(openSecret(sealed, key), 'AQ.super-secret-key')
+  })
+
+  test('a different key cannot open it', () => {
+    const sealed = sealSecret('AQ.super-secret-key', key)
+    const other = Buffer.alloc(32, 9)
+    assert.throws(() => openSecret(sealed, other))
+  })
+
+  test('tampering with the ciphertext is detected', () => {
+    const sealed = sealSecret('AQ.super-secret-key', key)
+    const bytes = Buffer.from(sealed.ciphertext, 'base64')
+    bytes[0] ^= 0xff
+    assert.throws(() => openSecret({ ...sealed, ciphertext: bytes.toString('base64') }, key))
+  })
+
+  test('each seal uses a fresh iv', () => {
+    const a = sealSecret('same', key)
+    const b = sealSecret('same', key)
+    assert.notEqual(a.iv, b.iv)
+    assert.notEqual(a.ciphertext, b.ciphertext)
+  })
+})
+
+describe('encryptionKey', () => {
+  test('accepts 64 hex characters', () => {
+    const hex = 'ab'.repeat(32)
+    assert.equal(encryptionKey({ SHELF_ENCRYPTION_KEY: hex })?.length, 32)
+  })
+
+  test('accepts base64', () => {
+    const b64 = Buffer.alloc(32, 3).toString('base64')
+    assert.equal(encryptionKey({ SHELF_ENCRYPTION_KEY: b64 })?.length, 32)
+  })
+
+  test('refuses a key of the wrong length', () => {
+    assert.equal(encryptionKey({ SHELF_ENCRYPTION_KEY: 'abc' }), null)
+    assert.equal(encryptionKey({}), null)
   })
 })

@@ -2,10 +2,11 @@ import 'server-only'
 import './env'
 import type { Card, GraphEdge, GraphNode, Item, Note, Progress, Series } from '@shelf/shared'
 import { interleaveBySeries, kindOfItem, localDateKey, similarity, toPgVector } from '@shelf/shared'
-import { embedText } from './ai-provider'
+import { embedText, providerEnv } from './ai-provider'
 import { getSupabaseAdmin, IS_DEMO } from './db'
 import { getSessionClient, getUserId } from './session'
 import { newFsrsCard } from './fsrs'
+import { encryptionKey, fingerprint, openSecret, sealSecret } from './crypto'
 import { randomUUID } from 'node:crypto'
 import {
   DEMO_USER_ID,
@@ -825,7 +826,8 @@ export async function searchVault(
   const { data } = await (await db()).rpc('search_vault', {
     query_text: query,
     // Only embed when the semantic side can contribute.
-    query_embedding: mode === 'keyword' ? null : toPgVector(await embedText(query)),
+    query_embedding:
+      mode === 'keyword' ? null : toPgVector(await embedText(query, await providerEnv())),
     match_limit: limit,
     search_mode: mode,
   })

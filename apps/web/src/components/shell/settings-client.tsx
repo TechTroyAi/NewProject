@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/input'
 import { useTheme, ACCENTS } from '@/lib/theme'
 import { THEMES, type Theme } from '@shelf/shared'
 import { HOTKEY_HINTS } from '@/lib/hotkeys'
+import { ApiKeyField } from './api-key-field'
 import { AI_PROVIDER_IDS, AI_PROVIDER_LABELS, type AiProviderId } from '@shelf/shared'
 import { IS_DEMO } from '@/lib/db'
 
@@ -288,15 +289,7 @@ export function SettingsClient({
                   )}
                 </p>
               </div>
-              <div>
-                <Label>Your own API key</Label>
-                <Input type="password" placeholder="AQ.… / sk-…" className="mt-1.5 max-w-sm font-mono" />
-                <p className="mt-1.5 text-[11.5px] text-faint">
-                  Encrypted at rest. Never logged. Set it on the server as{' '}
-                  <span className="font-mono">GEMINI_API_KEY</span>, <span className="font-mono">OPENAI_API_KEY</span> or{' '}
-                  <span className="font-mono">ANTHROPIC_API_KEY</span>.
-                </p>
-              </div>
+              <ApiKeyField />
             </CardContent>
           </Card>
         </div>

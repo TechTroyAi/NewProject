@@ -5,6 +5,7 @@ import type { EmbeddingModelV1 } from '@ai-sdk/provider'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { getUserApiKey, userApiKeyProviders } from './user-keys'
 
 /* ══════════════════════════════════════════════════════════════
    AI provider resolution.
@@ -160,14 +161,57 @@ export function resolveProvider(env: Env = process.env): ProviderConfig | null {
 
 
 /**
+ * The environment the AI layer should use for this request.
+ *
+ * If the user stored their own provider key it wins over the
+ * server-level one; otherwise the server's key is used.
+ */
+export async function providerEnv(env: Env = process.env): Promise<Env> {
+  try {
+    const providers = await userApiKeyProviders()
+    for (const provider of providers) {
+      if (provider !== 'gemini' && provider !== 'openai' && provider !== 'anthropic') continue
+      const decrypted = await getUserApiKey(provider)
+      if (decrypted?.key) return envWithUserKey(env, provider, decrypted.key)
+    }
+  } catch {
+    // A missing or unreadable key must never break the assistant.
+  }
+  return env
+}
+
+/**
+ * Build an environment override that uses the user's own key.
+ *
+ * `resolveProvider` reads its configuration from an env-shaped object,
+ * so a bring-your-own key is just a different value for the provider's
+ * key variable. The server-level key stays as the fallback.
+ */
+export function envWithUserKey(
+  base: Env,
+  provider: ProviderId | null,
+  userKey: string | null | undefined,
+): Env {
+  if (!provider || !userKey) return base
+  const env: Env = { ...base }
+  if (provider === 'gemini') env.GEMINI_API_KEY = userKey
+  else if (provider === 'openai') env.OPENAI_API_KEY = userKey
+  else if (provider === 'anthropic') env.ANTHROPIC_API_KEY = userKey
+  return env
+}
+
+/**
  * Embed a single string with the active provider's embedding model.
  *
  * Returns null when no embedding provider is configured (Anthropic
  * serves no embeddings) or when the call fails — callers fall back
  * to keyword ranking, so a flaky embedding service never breaks search.
  */
-export async function embedText(value: string): Promise<number[] | null> {
-  const provider = resolveProvider()
+export async function embedText(
+  value: string,
+  env: Env = process.env,
+): Promise<number[] | null> {
+  const provider = resolveProvider(env)
   if (!provider?.embeddingModel) return null
   try {
     const { embedding } = await embed({ model: provider.embeddingModel, value })

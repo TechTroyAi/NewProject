@@ -15,6 +15,7 @@ import { mediaUrl } from './media'
 import {
   describeProvider,
   embedText,
+  providerEnv,
   isModelUnavailable,
   providerConfigured,
   resolveProvider,
@@ -48,10 +49,14 @@ export interface RetrievedNote {
   score: number
 }
 
-const HAS_KEY = providerConfigured()
+/** True when some provider is configured — server key or the user's own. */
+async function hasKey(): Promise<boolean> {
+  if (providerConfigured()) return true
+  return providerConfigured(await providerEnv())
+}
 
-export function aiConfigured() {
-  return HAS_KEY
+export async function aiConfigured(): Promise<boolean> {
+  return hasKey()
 }
 
 /** Which provider is live right now (for the settings panel). */
@@ -66,8 +71,8 @@ export function activeProvider() {
  * Gemini → OpenAI → Anthropic → Ollama. With no key at all, Shelf
  * uses its deterministic offline model instead of calling out.
  */
-function model(): LanguageModel {
-  const provider = resolveProvider()
+async function model(): Promise<LanguageModel> {
+  const provider = resolveProvider(await providerEnv())
   if (!provider) {
     throw new Error('No AI provider configured')
   }
@@ -75,8 +80,8 @@ function model(): LanguageModel {
 }
 
 /** Every candidate model id, so a retired id can fall through to the next. */
-function modelIds(): string[] {
-  return resolveProvider()?.modelIds ?? []
+async function modelIds(): Promise<string[]> {
+  return resolveProvider(await providerEnv())?.modelIds ?? []
 }
 
 /**
@@ -84,7 +89,7 @@ function modelIds(): string[] {
  * if the provider reports that this one no longer exists.
  */
 async function withFallback<T>(fn: (model: LanguageModel) => Promise<T>): Promise<T> {
-  const provider = resolveProvider()
+  const provider = resolveProvider(await providerEnv())
   if (!provider) throw new Error('No AI provider configured')
   if (provider.modelIds.length <= 1) return fn(provider.model)
   return withModelFallback(provider.modelIds, (id) => fn(provider.modelFor(id)))
@@ -102,7 +107,7 @@ async function* streamWithFallback(opts: {
   prompt: string
   temperature?: number
 }): AsyncGenerator<string> {
-  const provider = resolveProvider()
+  const provider = resolveProvider(await providerEnv())
   if (!provider) throw new Error('No AI provider configured')
 
   for (const id of provider.modelIds) {
@@ -317,13 +322,13 @@ export async function* chatStream(opts: {
 }): AsyncGenerator<{ type: 'sources'; sources: ChatSource[] } | { type: 'text'; text: string } | { type: 'done' }> {
   // Embed the question so retrieval is semantic as well as keyword.
   // A failed embedding just means the SQL falls back to keyword rank.
-  const queryEmbedding = await embedText(opts.question)
+  const queryEmbedding = await embedText(opts.question, await providerEnv())
   const retrieved = await retrieveWithSpoilerGuard({ scope: opts.scope, queryEmbedding })
   const sources = buildSources(retrieved.chunks, retrieved.notes)
 
   yield { type: 'sources', sources }
 
-  if (!HAS_KEY) {
+  if (!(await hasKey())) {
     for (const chunk of mockAnswer(opts.question, retrieved, sources)) {
       yield { type: 'text', text: chunk }
       await new Promise((r) => setTimeout(r, 18))
@@ -382,7 +387,7 @@ function mockAnswer(question: string, retrieved: { chunks: RetrievedChunk[]; not
 /* ─── Ingestion (structured output) ──────────────────────────── */
 
 export async function ingestStructured(sample: string, hints: { title?: string } = {}) {
-  if (!HAS_KEY) {
+  if (!(await hasKey())) {
     return {
       title: hints.title ?? 'Untitled item',
       series: null as string | null,
@@ -446,7 +451,7 @@ export async function generateQuizCards(opts: {
   n: number
   types: string[]
 }) {
-  if (!HAS_KEY) {
+  if (!(await hasKey())) {
     return {
       cards: demoCards.slice(0, opts.n).map((c) => ({
         type: c.type,
@@ -494,7 +499,7 @@ export async function generateQuizCards(opts: {
 /* ─── Short-answer grading ───────────────────────────────────── */
 
 export async function gradeShortAnswer(question: string, reference: string, answer: string) {
-  if (!HAS_KEY) {
+  if (!(await hasKey())) {
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
     // An empty reference must not match everything: `''.includes('')`
     // is true, which would mark every blank answer as correct.

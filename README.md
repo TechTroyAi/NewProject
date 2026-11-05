@@ -198,6 +198,17 @@ Gemini  ->  OpenAI  ->  Anthropic  ->  Ollama
 | `OPENAI_API_KEY` | `gpt-4o-mini` by default. |
 | `ANTHROPIC_API_KEY` | `claude-3-5-haiku-latest` by default. Anthropic serves no embeddings, so the embedding provider stays separate. |
 | `OLLAMA_BASE_URL` | Point at a local Ollama server for a fully offline setup. |
+| `SHELF_ENCRYPTION_KEY` | 32 bytes, hex or base64. Encrypts the keys a user brings their own — see below. |
+
+### Bring your own key
+
+A user can store their own provider key in **Settings → AI**. It is
+sealed with AES-256-GCM (`SHELF_ENCRYPTION_KEY`) before it is written,
+never sent back to the browser, and never logged; only a short
+fingerprint comes back so the user can tell which key is in use. The
+server-level key stays as the fallback, so nothing breaks if the
+encryption key is not configured — the feature is simply switched off
+and the UI says so.
 
 With no key at all, Shelf falls back to its deterministic offline
 model — the chat still cites real sources, the quizzes still get
