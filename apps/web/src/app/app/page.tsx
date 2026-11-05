@@ -21,7 +21,8 @@ import { RecentNotes } from '@/components/dashboard/recent-notes'
 import { GraphPreview } from '@/components/dashboard/graph-preview'
 import { AiPicks } from '@/components/dashboard/ai-picks'
 import { WidgetErrorBoundary } from '@/components/shell/widget-error-boundary'
-import { localDateKey } from '@shelf/shared'
+import { DashboardGrid } from '@/components/dashboard/dashboard-grid'
+import { localDateKey, type ProfileSettings } from '@shelf/shared'
 import {
   getActivity,
   getAssistantPicks,
@@ -48,6 +49,20 @@ export default async function DashboardPage() {
     getAssistantPicks(),
     getActivity(60),
   ])
+
+  // The saved widget positions, if the user has arranged the grid.
+  const savedLayout = (profile?.settings as ProfileSettings | undefined)?.dashboard
+  const dashboardLayout = savedLayout?.length
+    ? savedLayout.map((l) => ({
+        i: l.i,
+        x: l.x,
+        y: l.y,
+        w: l.w,
+        h: l.h,
+        minW: l.minW,
+        minH: l.minH,
+      }))
+    : undefined
 
   const now = new Date()
   const hour = now.getHours()
@@ -133,160 +148,203 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile
-          label="Notes this week"
-          value={stats.notesThisWeek}
-          unit={`/ ${stats.notesGoal} goal`}
-          delta={
-            stats.noteDelta === 0
-              ? 'same as last week'
-              : `${stats.noteDelta > 0 ? '↑' : '↓'} ${Math.abs(stats.noteDelta)}% vs last week`
-          }
-          icon={<FileText />}
-          tone="linear-gradient(135deg, rgb(var(--accent)), rgb(var(--note)))"
-        />
-        <StatTile
-          label="Chapters finished"
-          value={stats.chaptersRead}
-          unit="so far"
-          icon={<BookOpen />}
-          tone="linear-gradient(135deg, rgb(var(--series)), rgb(var(--chapter)))"
-        />
-        <StatTile
-          label="Pages read"
-          value={stats.pagesRead.toLocaleString()}
-          unit="pages"
-          delta={pagesDelta === null ? undefined : `${pagesDelta >= 0 ? '↑' : '↓'} ${Math.abs(pagesDelta)}% vs the week before`}
-          icon={<TrendingUp />}
-          tone="linear-gradient(135deg, rgb(var(--wiki)), rgb(var(--accent)))"
-          spark={pagesSpark}
-        />
-        <StatTile
-          label="Due for review"
-          value={stats.cardsDue}
-          unit={`of ${stats.totalCards} cards`}
-          delta={streak > 0 ? `${streak}-day review streak` : undefined}
-          icon={<Target />}
-          tone="linear-gradient(135deg, rgb(var(--good)), rgb(var(--accent)))"
-          spark={reviewsSpark}
-        />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
-        <div className="space-y-4">
-          {/* Continue reading */}
-          <Card>
-            <CardHeader>
-              <Badge tone="series">Reader</Badge>
-              <CardTitle>Continue reading</CardTitle>
-              <span className="flex-1" />
-              <Link href="/app/library" className="inline-flex items-center gap-1 text-[11.5px] text-muted transition hover:text-fg">
-                Library <ArrowRight className="size-3" />
-              </Link>
-            </CardHeader>
-            <CardContent className="p-0">
-              <WidgetErrorBoundary label="Continue reading">
-                <ContinueReading items={continueItems} />
-              </WidgetErrorBoundary>
-            </CardContent>
-            {continueItems.length > 0 && (
-              <AiSuggestStrip
-                text={`Pick up ${continueItems[0].title} where you left off — page ${continueItems[0].page + 1} of ${continueItems[0].pageCount}.`}
-              />
-            )}
-          </Card>
-
-          {/* Graph */}
-          <Card>
-            <CardHeader>
-              <Badge tone="note">Graph</Badge>
-              <CardTitle>Knowledge graph — notes × manga</CardTitle>
-              <span className="flex-1" />
-              <Link href="/app/graph" className="inline-flex items-center gap-1 text-[11.5px] text-muted transition hover:text-fg">
-                Open <ArrowRight className="size-3" />
-              </Link>
-            </CardHeader>
-            <CardContent className="p-0">
-              <WidgetErrorBoundary label="Knowledge graph">
-                <GraphPreview nodes={graph.nodes} edges={graph.edges} />
-              </WidgetErrorBoundary>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-4">
-          {/* Recent notes */}
-          <Card>
-            <CardHeader>
-              <Badge tone="accent">Vault</Badge>
-              <CardTitle>Recent notes</CardTitle>
-              <span className="flex-1" />
-              <Link href="/app/notes" className="inline-flex items-center gap-1 text-[11.5px] text-muted transition hover:text-fg">
-                All <ArrowRight className="size-3" />
-              </Link>
-            </CardHeader>
-            <CardContent className="p-0">
-              <WidgetErrorBoundary label="Recent notes">
-                <RecentNotes
-                notes={notes.map((n) => ({
-                  id: n.id,
-                  title: n.title,
-                  updated_at: n.updated_at,
-                  is_ai_draft: n.is_ai_draft,
-                  excerpt: n.body_md.replace(/[#>*_`\[\]]/g, '').replace(/\n+/g, ' ').slice(0, 90),
-                  }))}
+      {/* The widgets. Their positions are saved to the profile. */}
+      <DashboardGrid
+        layout={dashboardLayout}
+        widgets={[
+          {
+            id: 'stats',
+            rows: 2,
+            children: (
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <StatTile
+                  label="Notes this week"
+                  value={stats.notesThisWeek}
+                  unit={`/ ${stats.notesGoal} goal`}
+                  delta={
+                    stats.noteDelta === 0
+                      ? 'same as last week'
+                      : `${stats.noteDelta > 0 ? '↑' : '↓'} ${Math.abs(stats.noteDelta)}% vs last week`
+                  }
+                  icon={<FileText />}
+                  tone="linear-gradient(135deg, rgb(var(--accent)), rgb(var(--note)))"
                 />
-              </WidgetErrorBoundary>
-            </CardContent>
-          </Card>
-
-          {/* AI picks */}
-          <Card>
-            <CardHeader>
-              <Badge tone="wiki">AI</Badge>
-              <CardTitle>Assistant picks</CardTitle>
-              <span className="flex-1" />
-              <Sparkles className="size-3.5 text-accent" />
-            </CardHeader>
-            <CardContent className="p-0">
-              <WidgetErrorBoundary label="Assistant picks">
-                <AiPicks picks={aiPicks} />
-              </WidgetErrorBoundary>
-            </CardContent>
-          </Card>
-
-          {/* Quick actions */}
-          <Card>
-            <CardHeader>
-              <FilePlus2 className="size-4 text-faint" />
-              <CardTitle>Quick actions</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-2">
-              {[
-                {
-                  href: continueItems[0] ? `/app/read/${continueItems[0].id}?p=${continueItems[0].page}` : '/app/library',
-                  label: 'Resume reader',
-                  icon: BookOpen,
-                },
-                { href: '/app/notes/new', label: 'Daily note', icon: FileText },
-                { href: '/app/quiz/session', label: 'Review cards', icon: Target },
-                { href: '/app/graph', label: 'Explore graph', icon: Network },
-              ].map((a) => (
-                <Link
-                  key={a.href}
-                  href={a.href}
-                  className="flex items-center gap-2 rounded-xl border border-line/8 bg-raised/40 px-3 py-2.5 text-[12px] transition hover:border-line/18 hover:bg-raised"
-                >
-                  <a.icon className="size-3.5 shrink-0 text-accent" />
-                  {a.label}
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+                <StatTile
+                  label="Chapters finished"
+                  value={stats.chaptersRead}
+                  unit="so far"
+                  icon={<BookOpen />}
+                  tone="linear-gradient(135deg, rgb(var(--series)), rgb(var(--chapter)))"
+                />
+                <StatTile
+                  label="Pages read"
+                  value={stats.pagesRead.toLocaleString()}
+                  unit="pages"
+                  delta={
+                    pagesDelta === null
+                      ? undefined
+                      : `${pagesDelta >= 0 ? '↑' : '↓'} ${Math.abs(pagesDelta)}% vs the week before`
+                  }
+                  icon={<TrendingUp />}
+                  tone="linear-gradient(135deg, rgb(var(--wiki)), rgb(var(--accent)))"
+                  spark={pagesSpark}
+                />
+                <StatTile
+                  label="Due for review"
+                  value={stats.cardsDue}
+                  unit={`of ${stats.totalCards} cards`}
+                  delta={streak > 0 ? `${streak}-day review streak` : undefined}
+                  icon={<Target />}
+                  tone="linear-gradient(135deg, rgb(var(--good)), rgb(var(--accent)))"
+                  spark={reviewsSpark}
+                />
+              </div>
+            ),
+          },
+          {
+            id: 'continue',
+            rows: 4,
+            children: (
+              <Card className="h-full">
+                <CardHeader>
+                  <Badge tone="series">Reader</Badge>
+                  <CardTitle>Continue reading</CardTitle>
+                  <span className="flex-1" />
+                  <Link
+                    href="/app/library"
+                    className="inline-flex items-center gap-1 text-[11.5px] text-muted transition hover:text-fg"
+                  >
+                    Library <ArrowRight className="size-3" />
+                  </Link>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <WidgetErrorBoundary label="Continue reading">
+                    <ContinueReading items={continueItems} />
+                  </WidgetErrorBoundary>
+                </CardContent>
+                {continueItems.length > 0 && (
+                  <AiSuggestStrip
+                    text={`Pick up ${continueItems[0].title} where you left off — page ${continueItems[0].page + 1} of ${continueItems[0].pageCount}.`}
+                  />
+                )}
+              </Card>
+            ),
+          },
+          {
+            id: 'graph',
+            rows: 4,
+            children: (
+              <Card className="h-full">
+                <CardHeader>
+                  <Badge tone="note">Graph</Badge>
+                  <CardTitle>Knowledge graph — notes × manga</CardTitle>
+                  <span className="flex-1" />
+                  <Link
+                    href="/app/graph"
+                    className="inline-flex items-center gap-1 text-[11.5px] text-muted transition hover:text-fg"
+                  >
+                    Open <ArrowRight className="size-3" />
+                  </Link>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <WidgetErrorBoundary label="Knowledge graph">
+                    <GraphPreview nodes={graph.nodes} edges={graph.edges} />
+                  </WidgetErrorBoundary>
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            id: 'notes',
+            rows: 4,
+            children: (
+              <Card className="h-full">
+                <CardHeader>
+                  <Badge tone="accent">Vault</Badge>
+                  <CardTitle>Recent notes</CardTitle>
+                  <span className="flex-1" />
+                  <Link
+                    href="/app/notes"
+                    className="inline-flex items-center gap-1 text-[11.5px] text-muted transition hover:text-fg"
+                  >
+                    All <ArrowRight className="size-3" />
+                  </Link>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <WidgetErrorBoundary label="Recent notes">
+                    <RecentNotes
+                      notes={notes.map((n) => ({
+                        id: n.id,
+                        title: n.title,
+                        updated_at: n.updated_at,
+                        is_ai_draft: n.is_ai_draft,
+                        excerpt: n.body_md
+                          .replace(/[#>*_`\[\]]/g, '')
+                          .replace(/\n+/g, ' ')
+                          .slice(0, 90),
+                      }))}
+                    />
+                  </WidgetErrorBoundary>
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            id: 'picks',
+            rows: 4,
+            children: (
+              <Card className="h-full">
+                <CardHeader>
+                  <Badge tone="wiki">AI</Badge>
+                  <CardTitle>Assistant picks</CardTitle>
+                  <span className="flex-1" />
+                  <Sparkles className="size-3.5 text-accent" />
+                </CardHeader>
+                <CardContent className="p-0">
+                  <WidgetErrorBoundary label="Assistant picks">
+                    <AiPicks picks={aiPicks} />
+                  </WidgetErrorBoundary>
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            id: 'actions',
+            rows: 3,
+            children: (
+              <Card className="h-full">
+                <CardHeader>
+                  <FilePlus2 className="size-4 text-faint" />
+                  <CardTitle>Quick actions</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 gap-2">
+                  {[
+                    {
+                      href: continueItems[0]
+                        ? `/app/read/${continueItems[0].id}?p=${continueItems[0].page}`
+                        : '/app/library',
+                      label: 'Resume reader',
+                      icon: BookOpen,
+                    },
+                    { href: '/app/notes/new', label: 'Daily note', icon: FileText },
+                    { href: '/app/quiz/session', label: 'Review cards', icon: Target },
+                    { href: '/app/graph', label: 'Explore graph', icon: Network },
+                  ].map((a) => (
+                    <Link
+                      key={a.href}
+                      href={a.href}
+                      className="flex items-center gap-2 rounded-xl border border-line/8 bg-raised/40 px-3 py-2.5 text-[12px] transition hover:border-line/18 hover:bg-raised"
+                    >
+                      <a.icon className="size-3.5 shrink-0 text-accent" />
+                      {a.label}
+                    </Link>
+                  ))}
+                </CardContent>
+              </Card>
+            ),
+          },
+        ]}
+      />
     </div>
   )
 }

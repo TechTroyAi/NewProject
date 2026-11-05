@@ -86,6 +86,34 @@ export async function getProfile() {
   return data
 }
 
+/**
+ * Save the dashboard layout.
+ *
+ * The positions live in `profiles.settings.dashboard`, so they travel
+ * with the user. Only the `dashboard` key is touched — the theme and
+ * the reader settings in the same blob stay as they are.
+ */
+export async function saveDashboardLayout(
+  layout: { i: string; x: number; y: number; w: number; h: number; minW?: number; minH?: number }[],
+): Promise<void> {
+  if (IS_DEMO) return
+  const userId = await getUserId()
+  if (!userId) throw new Error('Not authenticated')
+
+  const { data: profile } = await (await db())
+    .from('profiles')
+    .select('settings')
+    .eq('id', userId)
+    .maybeSingle()
+
+  const settings = (profile?.settings ?? {}) as Record<string, unknown>
+  const { error } = await (await db())
+    .from('profiles')
+    .update({ settings: { ...settings, dashboard: layout } })
+    .eq('id', userId)
+  if (error) throw error
+}
+
 /* ─── Series & items ─────────────────────────────────────────── */
 
 export async function getSeriesList(): Promise<Series[]> {

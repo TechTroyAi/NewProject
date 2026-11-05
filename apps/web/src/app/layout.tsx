@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next'
 import { themeScript } from '@/components/shell/theme-provider'
 import { Providers } from '@/components/shell/providers'
 import 'sonner/dist/styles.css'
+import 'react-grid-layout/css/styles.css'
+import 'react-resizable/css/styles.css'
 import './globals.css'
 
 export const metadata: Metadata = {

@@ -83,6 +83,23 @@ export interface ProfileSettings {
     dailyCap?: number
     enabled?: boolean
   }
+  /** The dashboard grid — where each widget sits. */
+  dashboard?: DashboardLayoutItem[]
+}
+
+/**
+ * Where a dashboard widget sits on the grid.
+ *
+ * `i` is the widget's id, `x`/`y` its cell, `w`/`h` its size.
+ */
+export interface DashboardLayoutItem {
+  i: string
+  x: number
+  y: number
+  w: number
+  h: number
+  minW?: number
+  minH?: number
 }
 
 export interface Series {

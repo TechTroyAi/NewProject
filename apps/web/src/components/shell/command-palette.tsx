@@ -131,6 +131,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     setCursor((c) => Math.min(c, Math.max(0, total - 1)))
   }, [total])
 
+  // Keep the highlighted row in sight — with a dozen results the
+  // cursor can move past the bottom of the list.
+  React.useEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    const active = list.querySelector<HTMLElement>('[data-active="true"]')
+    active?.scrollIntoView({ block: 'nearest' })
+  }, [cursor, hits, filteredCommands])
+
   function go(href: string) {
     router.push(href)
     onClose()
@@ -193,6 +202,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                 return (
                   <button
                     key={c.id}
+                    data-active={active ? 'true' : undefined}
                     onMouseEnter={() => setCursor(index)}
                     onClick={() => {
                       c.run()
@@ -223,6 +233,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                 return (
                   <button
                     key={`${h.kind}-${h.id}`}
+                    data-active={active ? 'true' : undefined}
                     onMouseEnter={() => setCursor(index)}
                     onClick={() => go(h.href)}
                     className={cn(
