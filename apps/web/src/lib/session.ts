@@ -26,6 +26,11 @@ import { DEMO_USER_ID } from './demo'
  *
  * `cache()` dedupes within a request, so a page that touches the
  * database a dozen times only builds one client.
+ *
+ * Uses the modern `getAll`/`setAll` cookie adapter. The deprecated
+ * `{get,set,remove}` adapter only reads the key + 5 chunks, which is
+ * hazardous for chunked sessions and for reading slotted PKCE verifier
+ * cookies (they live under `${storageKey}-flow-<id>-code-verifier`).
  */
 export const getSessionClient = cache(async (): Promise<SupabaseClient | null> => {
   if (IS_DEMO || !SUPABASE_URL || !SUPABASE_ANON_KEY) return null
@@ -34,22 +39,19 @@ export const getSessionClient = cache(async (): Promise<SupabaseClient | null> =
 
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
-      get(name: string) {
-        return store.get(name)?.value
+      getAll() {
+        return store.getAll()
       },
-      set(name: string, value: string, options: CookieOptions) {
+      setAll(
+        cookiesToSet: { name: string; value: string; options: CookieOptions }[],
+      ) {
         try {
-          store.set({ name, value, ...options })
+          cookiesToSet.forEach(({ name, value, options }) => {
+            store.set({ name, value, ...options })
+          })
         } catch {
           // Server Components cannot set cookies — the middleware
           // refreshes the session for us, so this is safe to ignore.
-        }
-      },
-      remove(name: string, options: CookieOptions) {
-        try {
-          store.set({ name, value: '', ...options })
-        } catch {
-          /* see above */
         }
       },
     },

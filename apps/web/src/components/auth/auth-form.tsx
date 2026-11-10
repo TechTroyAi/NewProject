@@ -7,6 +7,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/input'
 import { getSupabaseBrowser } from '@/lib/db'
+import {
+  envProviders,
+  notConfiguredHint,
+  providerLabel,
+  visibleProviders,
+  type OAuthProvider,
+} from '@/lib/oauth-providers'
 
 /* ══════════════════════════════════════════════════════════════
    Sign in / sign up.
@@ -40,6 +47,9 @@ function AuthFormInner({ mode }: { mode: 'login' | 'signup' }) {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [notice, setNotice] = React.useState<string | null>(null)
+  // Which providers pass both gates (env ∩ Supabase runtime config).
+  const [visible, setVisible] = React.useState<OAuthProvider[]>([])
+  const [providersLoaded, setProvidersLoaded] = React.useState(false)
 
   // The OAuth callback bounces back to /login with ?error=oauth when
   // the provider or the exchange went wrong.
@@ -47,6 +57,12 @@ function AuthFormInner({ mode }: { mode: 'login' | 'signup' }) {
   React.useEffect(() => {
     if (oauthError) setError('That sign-in did not go through. Please try again.')
   }, [oauthError])
+
+  // Detect which providers Supabase has actually configured, then intersect
+  // with the providers the app wants to offer (NEXT_PUBLIC_OAUTH_PROVIDERS).
+  React.useEffect(() => {
+    visibleProviders().then(setVisible).finally(() => setProvidersLoaded(true))
+  }, [])
 
   const isSignup = mode === 'signup'
   const sb = getSupabaseBrowser()
@@ -201,26 +217,52 @@ function AuthFormInner({ mode }: { mode: 'login' | 'signup' }) {
             <span className="text-[11.5px] text-faint">or</span>
             <span className="h-px flex-1 bg-line/10" />
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Button
-              variant="secondary"
-              onClick={() => void oauth('google')}
-              disabled={busy}
-              className="w-full"
-            >
-              {busy ? <Loader2 className="animate-spin" /> : null}
-              Google
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => void oauth('github')}
-              disabled={busy}
-              className="w-full"
-            >
-              {busy ? <Loader2 className="animate-spin" /> : null}
-              GitHub
-            </Button>
-          </div>
+          {providersLoaded ? (
+            <>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {visible.map((provider) => (
+                  <Button
+                    key={provider}
+                    variant="secondary"
+                    onClick={() => void oauth(provider)}
+                    disabled={busy}
+                    className="w-full"
+                  >
+                    {busy ? <Loader2 className="animate-spin" /> : null}
+                    {providerLabel(provider)}
+                  </Button>
+                ))}
+                {visible.length === 0 && (
+                  <p className="text-[12px] text-faint">
+                    No social sign-in providers are configured yet.
+                  </p>
+                )}
+              </div>
+              {/* Hints for providers the app wants to offer but Supabase
+                  hasn't been configured for. */}
+              {envProviders()
+                .filter((p) => !visible.includes(p))
+                .map((provider) => (
+                  <p
+                    key={provider}
+                    className="mt-2 rounded-xl border border-bad/30 bg-bad/8 px-3 py-2 text-[11.5px] text-bad"
+                  >
+                    {notConfiguredHint(provider)}
+                  </p>
+                ))}
+            </>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button variant="secondary" disabled className="w-full">
+                <Loader2 className="animate-spin" />
+                Google
+              </Button>
+              <Button variant="secondary" disabled className="w-full">
+                <Loader2 className="animate-spin" />
+                GitHub
+              </Button>
+            </div>
+          )}
         </>
       )}
 
