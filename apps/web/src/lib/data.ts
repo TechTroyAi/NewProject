@@ -380,7 +380,53 @@ export async function saveNote(note: {
   if (error) throw error
   const result = (data ?? {}) as { note?: Note; conflict?: boolean }
   if (!result.note) throw new Error('save_note returned no note')
+  // Index the note for the semantic half of the search. The embedding
+  // is written straight after the save — a failure here leaves the
+  // note keyword-searchable, which is better than failing the save.
+  void indexNoteEmbedding(result.note)
   return { note: result.note, conflict: !!result.conflict }
+}
+
+/* ─── note embeddings ─────────────────────────────────────────── */
+
+/**
+ * The body hash of the note whose embedding is already stored.
+ *
+ * Embedding costs money, so an edit that did not change the text does
+ * not pay for another call. The cache lives in the process; a restart
+ * simply means one extra embedding.
+ */
+const embeddedNoteHashes = new Map<string, string>()
+
+function hashText(text: string): string {
+  // A small, stable hash — it only has to notice that the text
+  // changed, not resist an attacker.
+  let h = 2166136261
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0).toString(36)
+}
+
+/** Embed a note and store it, unless the text has not changed. */
+async function indexNoteEmbedding(note: Note): Promise<void> {
+  const text = `${note.title}\n${note.body_md}`.trim()
+  if (!text) return
+  const hash = hashText(text)
+  if (embeddedNoteHashes.get(note.id) === hash) return
+  try {
+    const vector = await embedText(text, await providerEnv())
+    if (!vector?.length) return
+    await (await db())
+      .from('notes')
+      .update({ embedding: toPgVector(vector) })
+      .eq('id', note.id)
+    embeddedNoteHashes.set(note.id, hash)
+  } catch {
+    // No provider, no quota, no network — the note is still saved and
+    // still searchable by keyword.
+  }
 }
 
 /** Notes that point at an item (and the page they point at). */

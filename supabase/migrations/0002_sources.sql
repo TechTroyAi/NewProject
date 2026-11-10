@@ -117,7 +117,12 @@ create or replace function import_remote_series(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+-- `extensions` is on the path because pgcrypto lives there on
+-- Supabase, and this function calls digest(). With the path pinned
+-- to `public` alone the call failed at runtime with
+-- "function digest(text, unknown) does not exist" — the function
+-- compiled, because PL/pgSQL only resolves the name when it runs.
+set search_path = public, extensions
 as $$
 declare
   v_series_id uuid;
@@ -136,7 +141,9 @@ begin
   returning id into v_series_id;
 
   -- One item per chapter, so progress tracking works per chapter.
-  for v_chapter in select * from jsonb_array_elements(p_chapters)
+  -- `select value`, not `select *`: `select *` returns the raw
+  -- jsonb element as a record, and the loop variable is a jsonb.
+  for v_chapter in select value from jsonb_array_elements(p_chapters)
   loop
     insert into items (
       user_id, series_id, type, title, chapter, volume,
@@ -151,7 +158,12 @@ begin
       nullif(v_chapter->>'volume', '')::numeric,
       encode(digest(p_source_id::text || ':' || coalesce(v_chapter->>'id', ''), 'sha256'), 'hex'),
       'remote://' || p_source_id::text || '/' || coalesce(v_chapter->>'id', ''),
-      p_cover_url, coalesce((v_chapter->>'pageCount', '')::int, 0),
+      p_cover_url,
+      -- `(a, b)` is a ROW constructor, so `(v_chapter->>'pageCount', '')::int`
+      -- tried to cast a record to an integer and raised
+      -- "cannot cast type record to integer". nullif() is the
+      -- fallback that was meant.
+      coalesce(nullif(v_chapter->>'pageCount', '')::int, 0),
       'processing', 'remote', p_source_id, p_remote_id,
       v_chapter->>'id', p_cover_url
     )

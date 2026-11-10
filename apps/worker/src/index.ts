@@ -255,7 +255,40 @@ async function runEmbed(job: Job) {
       .eq('id', chunks[i].id)
     await setProgress(job, Math.round(((i + 1) / embeddings.length) * 90))
   }
+
+  // The item's own summary gets an embedding too: the semantic half
+  // of the vault search reads `items.embedding`, and without it the
+  // item is invisible to a semantic search.
+  await embedItemSummary(job)
+
   await finishJob(job, { status: 'done', progress: 100 })
+}
+
+/**
+ * Embed the item's summary and tags.
+ *
+ * Best-effort: a failed embedding must not fail the stage, because the
+ * chunks are already indexed and the item is readable.
+ */
+async function embedItemSummary(job: Job) {
+  try {
+    const { data: item } = await sb
+      .from('items')
+      .select('title, ai_summary, ai_tags')
+      .eq('id', job.item_id)
+      .maybeSingle()
+    if (!item) return
+    const text = [item.title, item.ai_summary ?? '', (item.ai_tags ?? []).join(' ')]
+      .filter(Boolean)
+      .join('\n')
+      .trim()
+    if (!text) return
+    const [vector] = await embedChunks([{ content: text }])
+    if (!vector) return
+    await sb.from('items').update({ embedding: toPgVector(vector) }).eq('id', job.item_id)
+  } catch (err) {
+    console.error('[shelf] item embedding failed:', err instanceof Error ? err.message : err)
+  }
 }
 
 async function runSummarize(job: Job) {

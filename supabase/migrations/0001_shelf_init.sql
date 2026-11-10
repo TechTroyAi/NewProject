@@ -47,12 +47,17 @@ create table if not exists items (
   ai_tags text[] not null default '{}',
   key_terms jsonb not null default '[]'::jsonb,
   speaker_notes text,
+  -- The embedding of the item's summary. The semantic half of the
+  -- vault search reads this column, so it has to exist before
+  -- search_vault() is created — without it the whole migration fails.
+  embedding vector(1536),
   created_at timestamptz not null default now(),
   unique (user_id, file_hash)
 );
 create index if not exists items_user_idx on items(user_id);
 create index if not exists items_series_idx on items(series_id);
 create index if not exists items_title_trgm on items using gin (title gin_trgm_ops);
+create index if not exists items_hnsw on items using hnsw (embedding vector_cosine_ops);
 
 -- ─── Pages ─────────────────────────────────────────────────────
 create table if not exists pages (
@@ -550,14 +555,19 @@ as $$
     f.id::text,
     f.kind,
     f.title,
-    coalesce(i.ai_summary, n.body_md, '') as snippet,
+    coalesce(max(i.ai_summary), max(n.body_md), '') as snippet,
     case when f.kind = 'note' then '/app/notes/' || f.id::text else '/app/item/' || f.id::text end as href,
     null::text as meta,
-    sum(f.rrf) over (partition by f.id) as rank
+    -- The two rankings are summed, so an item that both the keyword
+    -- and the vector search like comes out on top. It has to be a
+    -- plain aggregate: a window function over `f.rrf` is not allowed
+    -- next to a GROUP BY, and it would not merge the duplicate rows
+    -- anyway.
+    sum(f.rrf) as rank
   from fused f
   left join items i on i.id = f.id
   left join notes n on n.id = f.id
-  group by f.id, f.kind, f.title, i.ai_summary, n.body_md
+  group by f.id, f.kind, f.title
   order by rank desc
   limit greatest(1, least(match_limit, 100));
 $$;

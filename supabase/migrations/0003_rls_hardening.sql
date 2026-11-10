@@ -93,14 +93,19 @@ as $$
     f.id::text,
     f.kind,
     f.title,
-    coalesce(i.ai_summary, n.body_md, '') as snippet,
+    coalesce(max(i.ai_summary), max(n.body_md), '') as snippet,
     case when f.kind = 'note' then '/app/notes/' || f.id::text else '/app/item/' || f.id::text end as href,
     null::text as meta,
-    sum(f.rrf) over (partition by f.id) as rank
+    -- The two rankings are summed, so an item that both the keyword
+    -- and the vector search like comes out on top. It has to be a
+    -- plain aggregate: a window function over `f.rrf` is not allowed
+    -- next to a GROUP BY, and it would not merge the duplicate rows
+    -- anyway.
+    sum(f.rrf) as rank
   from fused f
   left join items i on i.id = f.id
   left join notes n on n.id = f.id
-  group by f.id, f.kind, f.title, i.ai_summary, n.body_md
+  group by f.id, f.kind, f.title
   order by rank desc
   limit greatest(1, least(match_limit, 100));
 $$;
@@ -320,7 +325,12 @@ create or replace function import_remote_series(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+-- `extensions` is on the path because pgcrypto lives there on
+-- Supabase, and this function calls digest(). With the path pinned
+-- to `public` alone the call failed at runtime with
+-- "function digest(text, unknown) does not exist" — the function
+-- compiled, because PL/pgSQL only resolves the name when it runs.
+set search_path = public, extensions
 as $$
 declare
   v_series_id uuid;
@@ -337,7 +347,9 @@ begin
   values (v_user_id, p_title, 'manga')
   returning id into v_series_id;
 
-  for v_chapter in select * from jsonb_array_elements(p_chapters)
+  -- `select value`, not `select *`: `select *` returns the raw
+  -- jsonb element as a record, and the loop variable is a jsonb.
+  for v_chapter in select value from jsonb_array_elements(p_chapters)
   loop
     insert into items (
       user_id, series_id, type, title, chapter, volume,
@@ -352,7 +364,12 @@ begin
       nullif(v_chapter->>'volume', '')::numeric,
       encode(digest(p_source_id::text || ':' || coalesce(v_chapter->>'id', ''), 'sha256'), 'hex'),
       'remote://' || p_source_id::text || '/' || coalesce(v_chapter->>'id', ''),
-      p_cover_url, coalesce((v_chapter->>'pageCount', '')::int, 0),
+      p_cover_url,
+      -- `(a, b)` is a ROW constructor, so `(v_chapter->>'pageCount', '')::int`
+      -- tried to cast a record to an integer and raised
+      -- "cannot cast type record to integer". nullif() is the
+      -- fallback that was meant.
+      coalesce(nullif(v_chapter->>'pageCount', '')::int, 0),
       'processing', 'remote', p_source_id, p_remote_id,
       v_chapter->>'id', p_cover_url
     )
@@ -619,7 +636,14 @@ begin
         'save_note'
       )
   loop
+    -- `revoke … from public` is not enough on Supabase: the platform
+    -- grants EXECUTE on new functions to `anon` and `authenticated`
+    -- explicitly, so the anonymous role keeps its access unless it is
+    -- revoked by name. The functions are auth.uid()-scoped and return
+    -- nothing without a session, but they should not be reachable at
+    -- all.
     execute format('revoke execute on function %s from public', f.sig);
+    execute format('revoke execute on function %s from anon', f.sig);
     execute format('grant execute on function %s to authenticated', f.sig);
     execute format('grant execute on function %s to service_role', f.sig);
   end loop;
