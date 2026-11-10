@@ -14,7 +14,10 @@ const MAX_MS = 5 * 60_000
 const STAGES = PIPELINE_STAGES
 
 function sse(controller: ReadableStreamDefaultController<Uint8Array>, event: string, data: unknown) {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+  // The event name is repeated inside the payload: the browser's
+  // `EventSource` reads it from the `event:` line, but the upload
+  // tray parses the JSON on its own and looks for `type`.
+  const payload = `event: ${event}\ndata: ${JSON.stringify({ type: event, ...(data as object) })}\n\n`
   try {
     controller.enqueue(new TextEncoder().encode(payload))
   } catch {
