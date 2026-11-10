@@ -343,8 +343,15 @@ begin
     raise exception 'not authenticated';
   end if;
 
+  -- Re-importing the same title has to be idempotent: the series
+  -- table is unique on (user_id, title), so a plain insert raised
+  -- "duplicate key value violates unique constraint
+  -- series_user_id_title_key" the second time a user imported the
+  -- same manga. The existing series is reused instead.
   insert into series (user_id, title, kind)
   values (v_user_id, p_title, 'manga')
+  on conflict (user_id, title) do update
+    set title = excluded.title
   returning id into v_series_id;
 
   -- `select value`, not `select *`: `select *` returns the raw
@@ -373,14 +380,29 @@ begin
       'processing', 'remote', p_source_id, p_remote_id,
       v_chapter->>'id', p_cover_url
     )
+    -- The chapter hash is derived from the source and the chapter id,
+    -- so re-importing the same chapter hits the unique constraint.
+    -- The existing row is refreshed instead.
+    on conflict (user_id, file_hash) do update
+      set series_id = excluded.series_id,
+          title = excluded.title,
+          page_count = excluded.page_count,
+          cover_path = excluded.cover_path,
+          remote_cover_url = excluded.remote_cover_url
     returning id into v_item_id;
 
     v_item_ids := v_item_ids || jsonb_build_array(v_item_id);
   end loop;
 
+  -- A chapter that was already imported keeps its job, so a second
+  -- import does not queue the same fetch twice.
   insert into jobs (user_id, item_id, stage, status)
   select v_user_id, x::uuid, 'remote', 'queued'
-  from jsonb_array_elements_text(v_item_ids) as x;
+  from jsonb_array_elements_text(v_item_ids) as x
+  where not exists (
+    select 1 from jobs j
+    where j.user_id = v_user_id and j.item_id = x::uuid and j.stage = 'remote'
+  );
 
   return jsonb_build_object('seriesId', v_series_id, 'itemIds', v_item_ids);
 end;

@@ -1,28 +1,10 @@
 import { NextResponse } from 'next/server'
-import { z } from 'zod'
 import { requireUser } from '@/lib/api'
 import { saveDisplayName, saveProfileSettings } from '@/lib/data'
+import { ProfilePatchSchema } from '@/lib/settings-schema'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-
-const ReaderSchema = z.object({
-  mode: z.enum(['strip', 'paged']).optional(),
-  rtl: z.boolean().optional(),
-  spread: z.boolean().optional(),
-  background: z.string().max(40).optional(),
-  scale: z.number().min(0.5).max(3).optional(),
-})
-
-const BodySchema = z.object({
-  display_name: z.string().min(1).max(80).optional(),
-  settings: z
-    .object({
-      reader: ReaderSchema.optional(),
-      notes: z.object({ dailyFormat: z.string().max(80).optional() }).optional(),
-    })
-    .optional(),
-})
 
 /**
  * The user's profile and settings.
@@ -34,7 +16,7 @@ export async function PUT(req: Request) {
   const auth = await requireUser()
   if ('response' in auth) return auth.response
 
-  const parsed = BodySchema.safeParse(await req.json().catch(() => null))
+  const parsed = ProfilePatchSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'invalid payload' }, { status: 400 })
 
   const { display_name, settings } = parsed.data

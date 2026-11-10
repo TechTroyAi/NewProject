@@ -29,6 +29,11 @@ export default async function SettingsPage({ params }: { params: { section: stri
       dailyFormat={settings.notes?.dailyFormat ?? 'YYYY-MM-DD · daily'}
       reader={settings.reader ?? {}}
       ai={{ dailyTokenBudget: settings.ai?.dailyTokenBudget ?? 200_000 }}
+      quiz={{
+        newPerDay: settings.quiz?.newPerDay ?? 10,
+        dailyCap: settings.quiz?.dailyCap ?? 50,
+        enabled: settings.quiz?.enabled !== false,
+      }}
       aiUsage={{ used, limit: settings.ai?.dailyTokenBudget ?? 200_000 }}
     />
   )

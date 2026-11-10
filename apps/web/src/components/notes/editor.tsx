@@ -99,7 +99,19 @@ export function NoteEditor({
   const html = React.useMemo(() => renderMarkdown(body, resolvedByRaw), [body, resolvedByRaw])
 
   /* ── autosave ──────────────────────────────────────────────── */
-  const dirty = title !== note.title || body !== note.body_md
+  // The last copy the server confirmed. `dirty` is measured against
+  // this and not against the `note` prop: the prop is the copy the
+  // server sent when the page loaded, so comparing against it left
+  // the editor permanently "dirty" after the first save. The draft
+  // interval then kept writing a draft for a note that was already
+  // saved, and the `clearDraft()` after the save was undone a second
+  // later.
+  const [saved, setSaved] = React.useState({
+    title: note.title,
+    body_md: note.body_md,
+    updated_at: note.updated_at ?? null,
+  })
+  const dirty = title !== saved.title || body !== saved.body_md
   // The version of the note this editor is editing. Sent with every
   // save so the server can tell us that somebody else got there
   // first instead of silently overwriting them.
@@ -136,13 +148,22 @@ export function NoteEditor({
         }
         if (!res.ok) throw new Error('save failed')
         const data = await res.json()
-        baseVersion.current = data.note?.updated_at ?? baseVersion.current
+        const confirmed = {
+          // The server trims the title and falls back to "Untitled",
+          // so the confirmed title is the server's, not the raw
+          // input — otherwise "  Hi  " would stay dirty forever.
+          title: data.note?.title ?? nextTitle,
+          body_md: nextBody,
+          updated_at: data.note?.updated_at ?? null,
+        }
+        baseVersion.current = confirmed.updated_at ?? baseVersion.current
+        setSaved(confirmed)
         onSaved?.({
           ...note,
           id: data.note?.id ?? note.id,
-          title: data.note?.title ?? nextTitle,
-          body_md: nextBody,
-          updated_at: data.note?.updated_at,
+          title: confirmed.title,
+          body_md: confirmed.body_md,
+          updated_at: confirmed.updated_at ?? undefined,
         })
         setConflict(null)
         setStatus('saved')
@@ -173,13 +194,29 @@ export function NoteEditor({
   /* ── local draft (IndexedDB) ───────────────────────────────── */
   // Restore the last local working copy when it is newer than the
   // server's version — the user closed the tab before the save landed.
+  //
+  // The draft's timestamp is the *client's* clock and the server's
+  // `updated_at` is the *server's*, so comparing them directly
+  // silently threw away the user's unsaved work whenever the two
+  // clocks disagreed. The offset between them is measured once, when
+  // the page loads, and the draft's timestamp is moved into the
+  // server's clock domain before the comparison.
+  const clockOffset = React.useRef(0)
+  React.useEffect(() => {
+    const serverAt = note.updated_at ? Date.parse(note.updated_at) : 0
+    clockOffset.current = serverAt ? Date.now() - serverAt : 0
+  }, [note.updated_at])
+
   React.useEffect(() => {
     let cancelled = false
     void (async () => {
       const draft = await loadDraft(note.id)
       if (cancelled || !draft) return
       const serverAt = note.updated_at ? Date.parse(note.updated_at) : 0
-      if (draft.savedAt <= serverAt) {
+      // The draft's own time, expressed in the server's clock.
+      const draftAt = draft.savedAt - clockOffset.current
+      if (draftAt <= serverAt) {
+        // The server has this copy already (or something newer).
         void clearDraft(note.id)
         return
       }

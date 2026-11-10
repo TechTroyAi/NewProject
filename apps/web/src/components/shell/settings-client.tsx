@@ -34,6 +34,7 @@ export function SettingsClient({
   dailyFormat = 'YYYY-MM-DD · daily',
   reader = {},
   ai = {},
+  quiz = {},
   aiUsage = null,
 }: {
   section: string
@@ -42,6 +43,7 @@ export function SettingsClient({
   dailyFormat?: string
   reader?: { mode?: 'strip' | 'paged'; rtl?: boolean; spread?: boolean; scale?: number }
   ai?: { dailyTokenBudget?: number }
+  quiz?: { newPerDay?: number; dailyCap?: number; enabled?: boolean }
   aiUsage?: { used: number; limit: number } | null
 }) {
   const router = useRouter()
@@ -317,34 +319,7 @@ export function SettingsClient({
       )}
 
       {section === 'quiz' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Spaced repetition</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-4 border-b border-line/6 pb-4">
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium">New cards per day</p>
-                <p className="mt-0.5 text-[12px] text-muted">Capped so the queue stays reviewable.</p>
-              </div>
-              <Input defaultValue="10" className="w-20" />
-            </div>
-            <div className="flex items-center gap-4 border-b border-line/6 pb-4">
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium">Enable quiz generation</p>
-                <p className="mt-0.5 text-[12px] text-muted">Generate cards the first time you open a note.</p>
-              </div>
-              <Switch checked onCheckedChange={() => {}} />
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium">FSRS parameters</p>
-                <p className="mt-0.5 text-[12px] text-muted">Optimised for retention with a 90% target.</p>
-              </div>
-              <Badge tone="accent">0.9 retention</Badge>
-            </div>
-          </CardContent>
-        </Card>
+        <QuizCard quiz={quiz} onSaved={() => router.refresh()} />
       )}
 
       {section === 'data' && (
@@ -610,6 +585,129 @@ function ReaderCard({
             <Switch checked={row.value} onCheckedChange={row.set} />
           </div>
         ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ─── Quiz card ──────────────────────────────────────────────── */
+
+/**
+ * The quiz settings.
+ *
+ * These used to be decorative: the "new cards per day" field was an
+ * uncontrolled input that saved nothing, and the switch was a
+ * hard-coded `checked` with an empty handler. Both values are read
+ * by `getQuizQueue()`, so a user who changed them here was told the
+ * setting was theirs and then ignored.
+ */
+function QuizCard({
+  quiz,
+  onSaved,
+}: {
+  quiz: { newPerDay?: number; dailyCap?: number; enabled?: boolean }
+  onSaved: () => void
+}) {
+  const [newPerDay, setNewPerDay] = React.useState(String(quiz.newPerDay ?? 10))
+  const [dailyCap, setDailyCap] = React.useState(String(quiz.dailyCap ?? 50))
+  const [enabled, setEnabled] = React.useState(quiz.enabled !== false)
+  const [busy, setBusy] = React.useState(false)
+
+  async function save(next: {
+    newPerDay?: number
+    dailyCap?: number
+    enabled?: boolean
+  }) {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/settings/profile', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ settings: { quiz: next } }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `could not save (${res.status})`)
+      }
+      toast.success('Quiz settings saved.')
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function commitNumbers() {
+    const newPerDayValue = Number.parseInt(newPerDay, 10)
+    const dailyCapValue = Number.parseInt(dailyCap, 10)
+    if (!Number.isFinite(newPerDayValue) || newPerDayValue < 0) {
+      toast.error('New cards per day has to be a number.')
+      return
+    }
+    if (!Number.isFinite(dailyCapValue) || dailyCapValue < 1) {
+      toast.error('The daily cap has to be at least one card.')
+      return
+    }
+    void save({ newPerDay: newPerDayValue, dailyCap: dailyCapValue, enabled })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Spaced repetition</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-4 border-b border-line/6 pb-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">Enable quizzes</p>
+            <p className="mt-0.5 text-[12px] text-muted">
+              Turn the review queue off without losing any cards.
+            </p>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={(v) => {
+              setEnabled(v)
+              void save({ enabled: v })
+            }}
+          />
+        </div>
+        <div className="flex items-center gap-4 border-b border-line/6 pb-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">New cards per day</p>
+            <p className="mt-0.5 text-[12px] text-muted">Capped so the queue stays reviewable.</p>
+          </div>
+          <Input
+            type="number"
+            min={0}
+            value={newPerDay}
+            onChange={(e) => setNewPerDay(e.target.value)}
+            onBlur={commitNumbers}
+            className="w-20"
+          />
+        </div>
+        <div className="flex items-center gap-4 border-b border-line/6 pb-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">Daily review cap</p>
+            <p className="mt-0.5 text-[12px] text-muted">New and due cards together, per day.</p>
+          </div>
+          <Input
+            type="number"
+            min={1}
+            value={dailyCap}
+            onChange={(e) => setDailyCap(e.target.value)}
+            onBlur={commitNumbers}
+            className="w-20"
+          />
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">FSRS parameters</p>
+            <p className="mt-0.5 text-[12px] text-muted">Optimised for retention with a 90% target.</p>
+          </div>
+          <Badge tone="accent">0.9 retention</Badge>
+        </div>
       </CardContent>
     </Card>
   )

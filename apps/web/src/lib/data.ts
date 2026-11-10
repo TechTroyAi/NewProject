@@ -1072,9 +1072,16 @@ export async function fileInboxItem(
   if (seriesId) {
     target = seriesId
   } else {
+    // `series` is unique on (user_id, title), so a plain insert
+    // failed with "duplicate key value violates unique constraint"
+    // the second time a user filed an item whose title matched a
+    // series they already had. The existing series is reused.
     const { data: created, error } = await sb
       .from('series')
-      .insert({ user_id: userId, title: item.title, kind: kindOfItem(item.type) })
+      .upsert(
+        { user_id: userId, title: item.title, kind: kindOfItem(item.type) },
+        { onConflict: 'user_id,title' },
+      )
       .select('id')
       .single()
     if (error) throw error
