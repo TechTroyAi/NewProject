@@ -1,0 +1,287 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ══════════════════════════════════════════════════════════════
+   Shelf — theme tokens
+   Three surfaces: paper (light) · midnight (default) · amoled
+   Semantic node colors are shared across the graph + library.
+   ══════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme='midnight'] {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-serif: 'Newsreader', ui-serif, Georgia, serif;
+
+  --bg: 9 9 14;
+  --surface: 16 16 23;
+  --raised: 23 23 32;
+  --line: 255 255 255;
+  --fg: 236 236 244;
+  --muted: 142 142 166;
+  --faint: 99 99 124;
+
+  --accent: 124 107 245;
+  --accent-fg: 255 255 255;
+
+  --note: 124 107 245;
+  --series: 245 166 91;
+  --chapter: 242 109 125;
+  --wiki: 61 214 192;
+
+  --good: 61 214 192;
+  --warn: 245 166 91;
+  --bad: 242 109 125;
+
+  --ring: 255 255 255;
+  --shadow: 0 0 0;
+  --grid-fade: 0.35;
+}
+
+[data-theme='paper'] {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-serif: 'Newsreader', ui-serif, Georgia, serif;
+
+  --bg: 247 246 243;
+  --surface: 255 255 255;
+  --raised: 240 238 233;
+  --line: 0 0 0;
+  --fg: 28 27 33;
+  --muted: 104 101 115;
+  --faint: 150 147 160;
+
+  --accent: 104 88 224;
+  --accent-fg: 255 255 255;
+
+  --note: 104 88 224;
+  --series: 198 118 26;
+  --chapter: 208 62 82;
+  --wiki: 12 143 130;
+
+  --good: 12 143 130;
+  --warn: 198 118 26;
+  --bad: 208 62 82;
+
+  --ring: 0 0 0;
+  --shadow: 0 0 0;
+  --grid-fade: 0.05;
+}
+
+[data-theme='amoled'] {
+  --bg: 0 0 0;
+  --surface: 10 10 11;
+  --raised: 18 18 20;
+  --line: 255 255 255;
+  --fg: 245 245 250;
+  --muted: 138 138 160;
+  --faint: 92 92 112;
+
+  --accent: 140 120 255;
+  --accent-fg: 0 0 0;
+
+  --note: 140 120 255;
+  --series: 255 178 102;
+  --chapter: 255 116 132;
+  --wiki: 66 226 204;
+
+  --good: 66 226 204;
+  --warn: 255 178 102;
+  --bad: 255 116 132;
+
+  --ring: 255 255 255;
+  --shadow: 0 0 0;
+  --grid-fade: 0.2;
+}
+
+@layer base {
+  * {
+    @apply border-line/10;
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+  }
+  ::selection {
+    background: rgb(var(--accent) / 0.32);
+  }
+  *:focus-visible {
+    outline: 2px solid rgb(var(--accent) / 0.7);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--muted) / 0.28);
+    border-radius: 99px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--muted) / 0.5);
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* frosted panel used by sidebar / topbar / right rail */
+  .glass {
+    background: rgb(var(--surface) / 0.72);
+    backdrop-filter: blur(18px) saturate(1.6);
+    -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  }
+
+  .card {
+    @apply rounded-2xl border border-line/10 bg-surface shadow-card;
+  }
+
+  /* ── markdown / note rendering ─────────────────────── */
+  .prose-shelf {
+    @apply text-[15px] leading-[1.75] text-fg/90;
+  }
+  .prose-shelf > * + * {
+    @apply mt-4;
+  }
+  .prose-shelf h1 {
+    @apply mt-8 text-2xl font-bold tracking-tight text-fg;
+  }
+  .prose-shelf h2 {
+    @apply mt-7 text-lg font-semibold tracking-tight text-fg;
+  }
+  .prose-shelf h3 {
+    @apply mt-6 text-base font-semibold text-fg;
+  }
+  .prose-shelf p {
+    @apply text-fg/85;
+  }
+  .prose-shelf ul {
+    @apply list-disc space-y-1.5 pl-6 text-fg/85;
+  }
+  .prose-shelf ol {
+    @apply list-decimal space-y-1.5 pl-6 text-fg/85;
+  }
+  .prose-shelf blockquote {
+    @apply border-l-2 border-accent/60 pl-4 italic text-fg/70;
+  }
+  .prose-shelf code {
+    @apply rounded-md bg-raised px-1.5 py-0.5 font-mono text-[13px] text-fg/90;
+  }
+  .prose-shelf pre {
+    @apply overflow-x-auto rounded-xl border border-line/10 bg-raised p-4 text-[13px];
+  }
+  .prose-shelf pre code {
+    @apply bg-transparent p-0;
+  }
+  .prose-shelf hr {
+    @apply border-line/10;
+  }
+  .prose-shelf a {
+    @apply text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent;
+  }
+  .prose-shelf table {
+    @apply w-full border-collapse text-sm;
+  }
+  .prose-shelf th,
+  .prose-shelf td {
+    @apply border border-line/10 px-3 py-2 text-left;
+  }
+  .prose-shelf th {
+    @apply bg-raised font-semibold;
+  }
+
+  /* wikilinks */
+  .wikilink {
+    @apply inline-flex cursor-pointer items-baseline gap-1 rounded-md px-1.5 py-0.5 text-[0.94em] font-medium
+           text-accent transition hover:bg-accent/12;
+    background: rgb(var(--accent) / 0.1);
+  }
+  .wikilink::before {
+    content: '[[';
+    opacity: 0.4;
+    font-size: 0.85em;
+  }
+  .wikilink::after {
+    content: ']]';
+    opacity: 0.4;
+    font-size: 0.85em;
+  }
+  .wikilink[data-resolved='false'] {
+    @apply text-faint;
+    background: rgb(var(--muted) / 0.1);
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+  .wikilink[data-target='item'] {
+    color: rgb(var(--series));
+    background: rgb(var(--series) / 0.1);
+  }
+  .wikilink[data-target='clip'] {
+    color: rgb(var(--chapter));
+    background: rgb(var(--chapter) / 0.1);
+  }
+
+  /* markdown source editor */
+  .md-source {
+    @apply w-full resize-none bg-transparent font-mono text-[13.5px] leading-[1.85] text-fg/90 outline-none;
+    tab-size: 2;
+  }
+  .md-source::placeholder {
+    @apply text-faint;
+  }
+
+  .kbd {
+    @apply inline-flex min-w-[20px] items-center justify-center rounded-md border border-line/15 bg-raised
+           px-1.5 py-0.5 font-mono text-[10.5px] text-muted;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-raised;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    background: linear-gradient(90deg, transparent, rgb(var(--fg) / 0.06), transparent);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .mask-fade-b {
+    mask-image: linear-gradient(to bottom, black 82%, transparent 100%);
+  }
+  .grid-paper {
+    background-image:
+      linear-gradient(rgb(var(--fg) / calc(var(--grid-fade) * 0.35)) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--fg) / calc(var(--grid-fade) * 0.35)) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
