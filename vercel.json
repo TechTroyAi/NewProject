@@ -1,0 +1,17 @@
+{
+  "version": 3,
+  "rootDirectory": "apps/web",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1"
+  },
+  "github": {
+    "enabled": true,
+    "autoAssignCustomDomains": true,
+    "silentBuildErrors": false
+  }
+}
