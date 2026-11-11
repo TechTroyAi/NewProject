@@ -1,6 +1,5 @@
 {
   "version": 3,
-  "rootDirectory": "apps/web",
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
